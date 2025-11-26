@@ -1,6 +1,24 @@
 # algorist
 
-A new Flutter project.
+EKLENEN ÖZELLİKLER
+
+
+1-PORTFÖYÜM SAYFASI
+2-Kullanıcının isteğe göre ekleyebileceği widgetlar
+3-sol üstte bulunan hamburger menüsü açılımı kullanımı çıkış yap butonları
+4-Login/Register işlemleri
+5-SqlLite veritabanı,verilerin kaydedilmesi.
+6-Tasarımsal düzenlemeler eklendi
+
+
+EKLENECEK ÖZELLİKLER
+
+1-hamburger menüsü içerisindeki butonlar aktif hale getirilecek
+2-profil sayfası ve bildirimler aktif hale getirilecek
+3-alt orta kısımda bulunan butonlar aktif edilecelk
+4-apiler incelenecek en uygun olan bağlanacak ve test edilecek
+5-ve daha fazlası 
+
 
 ## Getting Started
 
