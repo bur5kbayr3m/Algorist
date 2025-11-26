@@ -251,7 +251,7 @@ class DatabaseService {
     try {
       final db = await database;
 
-      print('\n' + '=' * 60);
+      print('\n${'=' * 60}');
       print('📊 VERITABANI DUMP - TÜM VERİLER');
       print('=' * 60);
 
@@ -304,7 +304,7 @@ class DatabaseService {
     try {
       final db = await database;
 
-      print('\n' + '=' * 60);
+      print('\n${'=' * 60}');
       print('📊 KULLANICI VERİLERİ: $email');
       print('=' * 60);
 

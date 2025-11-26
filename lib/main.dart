@@ -27,7 +27,6 @@ class MyApp extends StatelessWidget {
           colorScheme: const ColorScheme.dark(
             primary: Color(0xFF4F46E5), // Indigo
             surface: Color(0xFF1E293B),
-            background: Color(0xFF0B0A12),
           ),
         ),
         home: const AuthWrapper(),

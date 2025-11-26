@@ -46,7 +46,7 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
   List<Map<String, dynamic>> _userAssets = [];
   bool _isLoading = true;
   bool _isEditMode = false;
-  List<String> _enabledWidgets = []; // 'chart', 'density', etc.
+  final List<String> _enabledWidgets = []; // 'chart', 'density', etc.
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
 
   @override

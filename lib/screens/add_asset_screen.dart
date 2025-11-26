@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
@@ -72,8 +71,7 @@ class _AddAssetScreenState extends State<AddAssetScreen> {
               primary: AppColors.primary,
               surface: AppColors.surfaceDark,
               onSurface: AppColors.onSurfaceDark,
-            ),
-            dialogBackgroundColor: AppColors.surfaceDark,
+            ), dialogTheme: DialogThemeData(backgroundColor: AppColors.surfaceDark),
           ),
           child: child!,
         );

@@ -52,6 +52,7 @@ dependencies:
   
   # Form Validation
   email_validator: ^2.1.17
+  logger: ^2.6.2
 
 dev_dependencies:
   flutter_test:
