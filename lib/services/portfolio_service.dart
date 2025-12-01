@@ -37,7 +37,6 @@ class PortfolioService {
 
   /// Varlık güncelle
   Future<void> updateAsset(
-    String userEmail,
     String assetId,
     Map<String, dynamic> updatedAsset,
   ) async {
@@ -50,7 +49,7 @@ class PortfolioService {
   }
 
   /// Varlık sil
-  Future<void> deleteAsset(String userEmail, String assetId) async {
+  Future<void> deleteAsset(String assetId) async {
     try {
       await _db.deleteAsset(assetId);
     } catch (e) {

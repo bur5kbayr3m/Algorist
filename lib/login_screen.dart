@@ -6,21 +6,7 @@ import 'package:provider/provider.dart';
 import 'providers/auth_provider.dart';
 import 'screens/portfolio_screen.dart';
 import 'screens/register_screen.dart';
-
-// --- SABİT RENKLER (HTML'deki Tailwind Config'den) ---
-class AppColors {
-  static const primary = Color(0xFF4B2BEE); // #4b2bee
-
-  static const backgroundDark = Color(0xFF131022);
-
-  static const slate200 = Color(0xFFE2E8F0);
-  static const slate300 = Color(0xFFCBD5E1);
-  static const slate400 = Color(0xFF94A3B8);
-  static const slate500 = Color(0xFF64748B);
-  static const slate600 = Color(0xFF475569);
-  static const slate800 = Color(0xFF1E293B);
-  static const slate900 = Color(0xFF0F172A);
-}
+import 'theme/app_colors.dart';
 
 // --- GOOGLE ICON SVG ---
 const String googleIconSvg =

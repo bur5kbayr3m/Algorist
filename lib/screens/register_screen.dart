@@ -2,8 +2,12 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
+import 'package:intl_phone_field/intl_phone_field.dart';
 import '../providers/auth_provider.dart';
 import '../login_screen.dart';
+import '../services/sms_service.dart';
+import 'otp_verification_screen.dart';
+import '../theme/app_colors.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -20,6 +24,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _confirmPasswordController = TextEditingController();
   final _fullNameController = TextEditingController();
   final _formKey = GlobalKey<FormState>();
+  // Telefon numarası şu an kullanılmıyor
+  String _completePhoneNumber = '';
 
   @override
   void dispose() {
@@ -43,32 +49,102 @@ class _RegisterScreenState extends State<RegisterScreen> {
       return;
     }
 
-    final authProvider = Provider.of<AuthProvider>(context, listen: false);
-
-    final success = await authProvider.register(
-      email: _emailController.text.trim(),
-      password: _passwordController.text,
-      fullName: _fullNameController.text.trim(),
-    );
-
-    if (success && mounted) {
+    if (_completePhoneNumber.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Kayıt başarılı! Giriş yapabilirsiniz.'),
-          backgroundColor: Colors.green,
-        ),
-      );
-      // Login ekranına dön
-      Navigator.of(
-        context,
-      ).pushReplacement(MaterialPageRoute(builder: (_) => const LoginScreen()));
-    } else if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(authProvider.errorMessage ?? 'Kayıt başarısız'),
+          content: Text('Lütfen telefon numaranızı girin'),
           backgroundColor: Colors.red,
         ),
       );
+      return;
+    }
+
+    try {
+      // SMS gönder
+      final smsSent = await SmsService.instance.sendOtp(_completePhoneNumber);
+
+      if (!smsSent) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('SMS gönderilemedi'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+        return;
+      }
+
+      // Debug mode'da OTP'yi göster
+      if (mounted) {
+        final debugOtp = SmsService.instance.getOtpForTesting(
+          _completePhoneNumber,
+        );
+        if (debugOtp != null) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('DEBUG: SMS Kodu = $debugOtp'),
+              backgroundColor: Colors.orange,
+              duration: const Duration(seconds: 5),
+            ),
+          );
+        }
+      }
+
+      // OTP doğrulama ekranına git
+      if (mounted) {
+        final verified = await Navigator.of(context).push<bool>(
+          MaterialPageRoute(
+            builder: (_) => OtpVerificationScreen(
+              phoneNumber: _completePhoneNumber,
+              email: _emailController.text.trim(),
+              password: _passwordController.text,
+              fullName: _fullNameController.text.trim(),
+            ),
+          ),
+        );
+
+        // OTP doğrulandıysa kayıt işlemini tamamla
+        if (verified == true && mounted) {
+          final authProvider = Provider.of<AuthProvider>(
+            context,
+            listen: false,
+          );
+
+          final success = await authProvider.register(
+            email: _emailController.text.trim(),
+            password: _passwordController.text,
+            fullName: _fullNameController.text.trim(),
+            phone: _completePhoneNumber,
+          );
+
+          if (success && mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Kayıt başarılı! Giriş yapabilirsiniz.'),
+                backgroundColor: Colors.green,
+              ),
+            );
+            // Login ekranına dön
+            Navigator.of(context).pushReplacement(
+              MaterialPageRoute(builder: (_) => const LoginScreen()),
+            );
+          } else if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(authProvider.errorMessage ?? 'Kayıt başarısız'),
+                backgroundColor: Colors.red,
+              ),
+            );
+          }
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Hata: $e'), backgroundColor: Colors.red),
+        );
+      }
     }
   }
 
@@ -225,6 +301,68 @@ class _RegisterScreenState extends State<RegisterScreen> {
                                   ? AppColors.slate500
                                   : AppColors.slate400,
                             ),
+                          ),
+
+                          const SizedBox(height: 16),
+
+                          // Telefon Numarası
+                          _buildLabel('Telefon Numarası', labelColor),
+                          const SizedBox(height: 6),
+                          IntlPhoneField(
+                            decoration: InputDecoration(
+                              hintText: '5XX XXX XX XX',
+                              hintStyle: GoogleFonts.manrope(
+                                color: isDarkMode
+                                    ? AppColors.slate500
+                                    : AppColors.slate400,
+                              ),
+                              filled: true,
+                              fillColor: inputBgColor,
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(8.0),
+                                borderSide: BorderSide(color: inputBorderColor),
+                              ),
+                              enabledBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(8.0),
+                                borderSide: BorderSide(color: inputBorderColor),
+                              ),
+                              focusedBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(8.0),
+                                borderSide: const BorderSide(
+                                  color: AppColors.primary,
+                                  width: 2,
+                                ),
+                              ),
+                              errorBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(8.0),
+                                borderSide: const BorderSide(color: Colors.red),
+                              ),
+                              focusedErrorBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(8.0),
+                                borderSide: const BorderSide(
+                                  color: Colors.red,
+                                  width: 2,
+                                ),
+                              ),
+                              contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                                vertical: 12,
+                              ),
+                            ),
+                            style: GoogleFonts.manrope(color: titleColor),
+                            dropdownTextStyle: GoogleFonts.manrope(
+                              color: titleColor,
+                            ),
+                            initialCountryCode: 'TR',
+                            onChanged: (phone) {
+                              _completePhoneNumber = phone.completeNumber;
+                            },
+                            validator: (phone) {
+                              if (phone == null || phone.number.isEmpty) {
+                                return 'Telefon numarası gerekli';
+                              }
+                              return null;
+                            },
                           ),
 
                           const SizedBox(height: 16),

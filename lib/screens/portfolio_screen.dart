@@ -1,39 +1,22 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
 import '../services/portfolio_service.dart';
 import '../services/database_service.dart';
+import '../theme/app_colors.dart';
 import 'add_asset_screen.dart';
-
-class AppColors {
-  // Primary Color (matching HTML #4b2bee)
-  static const primary = Color(0xFF4B2BEE);
-
-  // Background Colors
-  static const backgroundLight = Color(0xFFF6F6F8);
-  static const backgroundDark = Color(0xFF131022);
-
-  // Card/Surface Colors (white with opacity)
-  static const cardDark = Color(0x0DFFFFFF); // white/5
-
-  // Text Colors
-  static const textMainDark = Color(0xFFFFFFFF);
-  static const textSecondaryDark = Color(0xFF9CA3AF); // gray-400
-
-  // Status Colors
-  static const positiveDark = Color(0xFF34C759);
-  static const negativeDark = Color(0xFFFF3B30);
-
-  // Icon background colors
-  static const grayBg = Color(0xFF1F2937); // gray-800
-  static const yellowBg = Color(0x66713F12); // yellow-900/40
-  static const blueBg = Color(0x661E3A8A); // blue-900/40
-  static const greenBg = Color(0x66065F46); // green-900/40
-
-  // Border
-  static const borderDark = Color(0x1AFFFFFF); // white/10
-}
+import 'analytics_screen.dart';
+import 'dashboard_screen.dart';
+import 'edit_portfolio_screen.dart';
+import 'asset_detail_screen.dart';
+import 'profile_screen.dart';
+import 'transaction_history_screen.dart';
+import 'notifications_screen.dart';
+import 'settings_screen.dart';
+import 'help_screen.dart';
+import 'about_screen.dart';
 
 class PortfolioScreen extends StatefulWidget {
   const PortfolioScreen({super.key});
@@ -42,50 +25,217 @@ class PortfolioScreen extends StatefulWidget {
   State<PortfolioScreen> createState() => _PortfolioScreenState();
 }
 
+enum TimePeriod { daily, weekly, monthly, allTime }
+
 class _PortfolioScreenState extends State<PortfolioScreen> {
   List<Map<String, dynamic>> _userAssets = [];
   bool _isLoading = true;
   bool _isEditMode = false;
   final List<String> _enabledWidgets = []; // 'chart', 'density', etc.
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
+  TimePeriod _selectedPeriod = TimePeriod.daily;
 
   @override
   void initState() {
     super.initState();
-    _loadUserAssets();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _loadUserAssets();
+        _loadWidgetPreferencesSimple();
+      }
+    });
+  }
+
+  Future<void> _loadWidgetPreferencesSimple() async {
+    try {
+      final authProvider = Provider.of<AuthProvider>(context, listen: false);
+      final userEmail = authProvider.currentUserEmail;
+
+      if (userEmail != null && mounted) {
+        final preferences = await DatabaseService.instance
+            .loadWidgetPreferences(userEmail);
+        if (mounted) {
+          setState(() {
+            _enabledWidgets.clear();
+            _enabledWidgets.addAll(preferences);
+          });
+        }
+      }
+    } catch (e) {
+      print('Error loading widget preferences: $e');
+    }
   }
 
   Future<void> _loadUserAssets() async {
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
     final userEmail = authProvider.currentUserEmail;
 
-    print('🔍 Loading assets for user: $userEmail');
-
     if (userEmail != null) {
       final assets = await PortfolioService.instance.getUserAssets(userEmail);
-      print('📦 Loaded ${assets.length} assets');
-      print('📊 Assets data: $assets');
       setState(() {
         _userAssets = assets;
         _isLoading = false;
       });
     } else {
-      print('❌ No user email found');
       setState(() {
         _isLoading = false;
       });
     }
   }
 
+  // Widget preferences _loadWidgetPreferencesSimple metodunda yükleniyor
+
+  Future<void> _saveWidgetPreferences() async {
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    final userEmail = authProvider.currentUserEmail;
+
+    if (userEmail != null) {
+      await DatabaseService.instance.saveWidgetPreferences(
+        userEmail,
+        _enabledWidgets,
+      );
+    }
+  }
+
   Future<void> _navigateToAddAsset() async {
-    final result = await Navigator.push<bool>(
+    final result = await Navigator.push<dynamic>(
       context,
       MaterialPageRoute(builder: (context) => const AddAssetScreen()),
     );
 
     if (result == true) {
       await _loadUserAssets();
+    } else if (result == 'openDrawer') {
+      await _loadUserAssets();
+      // Drawer'ı aç
+      Future.delayed(const Duration(milliseconds: 100), () {
+        if (mounted) {
+          _scaffoldKey.currentState?.openDrawer();
+        }
+      });
     }
+  }
+
+  void _showFABMenu() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      barrierColor: Colors.black.withOpacity(0.7),
+      builder: (context) => Container(
+        decoration: BoxDecoration(
+          color: const Color(0xFF1F2937),
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+          border: Border.all(
+            color: AppColors.borderDark.withOpacity(0.3),
+            width: 1,
+          ),
+        ),
+        padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: AppColors.textSecondaryDark.withOpacity(0.3),
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(height: 24),
+            _buildFABMenuItem(
+              icon: Icons.add_circle_outline,
+              title: 'Varlık Ekle',
+              subtitle: 'Portföyünüze yeni varlık ekleyin',
+              onTap: () async {
+                Navigator.pop(context);
+                await _navigateToAddAsset();
+              },
+            ),
+            const SizedBox(height: 12),
+            _buildFABMenuItem(
+              icon: Icons.edit_outlined,
+              title: 'Portföyü Düzenle',
+              subtitle: 'Varlıklarınızı düzenleyin veya satın',
+              onTap: () async {
+                Navigator.pop(context);
+                final result = await Navigator.push<bool>(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const EditPortfolioScreen(),
+                  ),
+                );
+                if (result == true) {
+                  await _loadUserAssets();
+                }
+              },
+            ),
+            const SizedBox(height: 24),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFABMenuItem({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: const Color(0xFF131022),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: AppColors.borderDark.withOpacity(0.5)),
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: AppColors.primary.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(icon, color: AppColors.primary, size: 24),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: GoogleFonts.manrope(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: AppColors.textMainDark,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    subtitle,
+                    style: GoogleFonts.manrope(
+                      fontSize: 13,
+                      color: AppColors.textSecondaryDark,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const Icon(
+              Icons.arrow_forward_ios,
+              color: AppColors.textSecondaryDark,
+              size: 18,
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   double _calculateTotalValue() {
@@ -109,95 +259,293 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
         .reduce((a, b) => a < b ? a : b);
   }
 
-  @override
-  Widget build(BuildContext context) {
-    if (_isLoading) {
-      return Scaffold(
-        backgroundColor: AppColors.backgroundDark,
-        body: const Center(
-          child: CircularProgressIndicator(color: AppColors.primary),
-        ),
-      );
+  Map<String, dynamic> _calculatePeriodChange() {
+    if (_userAssets.isEmpty) {
+      return {'change': 0.0, 'percentage': 0.0, 'isPositive': true};
     }
 
+    final now = DateTime.now();
+    DateTime startDate;
+
+    switch (_selectedPeriod) {
+      case TimePeriod.daily:
+        startDate = now.subtract(const Duration(days: 1));
+        break;
+      case TimePeriod.weekly:
+        startDate = now.subtract(const Duration(days: 7));
+        break;
+      case TimePeriod.monthly:
+        startDate = DateTime(now.year, now.month - 1, now.day);
+        break;
+      case TimePeriod.allTime:
+        // En eski varlık tarihini bul
+        startDate = _userAssets
+            .map((asset) {
+              final dateStr = asset['addedAt'] as String?;
+              if (dateStr != null) {
+                try {
+                  return DateTime.parse(dateStr);
+                } catch (e) {
+                  return now;
+                }
+              }
+              return now;
+            })
+            .reduce((a, b) => a.isBefore(b) ? a : b);
+        break;
+    }
+
+    // Satışlardan gelen kar/zararı hesapla
+    double totalProfitLoss = 0.0;
+
+    for (var asset in _userAssets) {
+      final type = asset['type'] as String;
+
+      // Nakit varlıklardan kar/zarar çıkar
+      if (type == 'Nakit') {
+        final nameRaw = asset['name'] as String;
+        if (nameRaw.contains('|')) {
+          final parts = nameRaw.split('|');
+          if (parts.length > 1) {
+            final profitInfo = parts[1];
+            final profitLossMatch = RegExp(
+              r'profitLoss:([-\d.]+)',
+            ).firstMatch(profitInfo);
+            if (profitLossMatch != null) {
+              final profitLoss =
+                  double.tryParse(profitLossMatch.group(1)!) ?? 0.0;
+              totalProfitLoss += profitLoss;
+            }
+          }
+        }
+      }
+    }
+
+    final totalValue = _calculateTotalValue();
+
+    // Eğer satıştan kar/zarar varsa, ona göre hesapla
+    if (totalProfitLoss != 0.0) {
+      // Gerçek yatırım = toplam değer - kar/zarar
+      final realInvestment = totalValue - totalProfitLoss;
+      final changePercentage = realInvestment > 0
+          ? (totalProfitLoss / realInvestment) * 100
+          : 0.0;
+
+      return {
+        'change': totalProfitLoss,
+        'percentage': changePercentage,
+        'isPositive': totalProfitLoss >= 0,
+      };
+    }
+
+    // Satış yoksa basit simülasyon
+    final daysSinceStart = now.difference(startDate).inDays;
+    final seed = totalValue.toInt() + daysSinceStart;
+    final random = (seed % 100) / 100.0;
+    final changePercentage = (random * 3.5) - 0.5;
+    final changeAmount = totalValue * (changePercentage / 100);
+
+    return {
+      'change': changeAmount,
+      'percentage': changePercentage,
+      'isPositive': changePercentage >= 0,
+    };
+  }
+
+  String _getPeriodLabel() {
+    switch (_selectedPeriod) {
+      case TimePeriod.daily:
+        return 'Bugün';
+      case TimePeriod.weekly:
+        return 'Bu Hafta';
+      case TimePeriod.monthly:
+        return 'Bu Ay';
+      case TimePeriod.allTime:
+        return 'Tüm Zamanlar';
+    }
+  }
+
+  void _cyclePeriod() {
+    setState(() {
+      switch (_selectedPeriod) {
+        case TimePeriod.daily:
+          _selectedPeriod = TimePeriod.weekly;
+          break;
+        case TimePeriod.weekly:
+          _selectedPeriod = TimePeriod.monthly;
+          break;
+        case TimePeriod.monthly:
+          _selectedPeriod = TimePeriod.allTime;
+          break;
+        case TimePeriod.allTime:
+          _selectedPeriod = TimePeriod.daily;
+          break;
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
     return Scaffold(
       key: _scaffoldKey,
       backgroundColor: AppColors.backgroundDark,
       drawer: _buildDrawer(),
       body: SafeArea(
-        child: Column(
-          children: [
-            _buildAppBar(),
-            Expanded(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const SizedBox(height: 24),
-                    _buildHeader(),
-                    const SizedBox(height: 16),
-                    _buildPortfolioSummary(),
-                    const SizedBox(height: 32),
-                    if (_isEditMode) _buildWidgetSelector(),
-                    if (_isEditMode) const SizedBox(height: 24),
-                    ..._buildDynamicWidgets(),
-                    const SizedBox(height: 32),
-                    _buildAssetList(),
-                    const SizedBox(height: 100),
-                  ],
+        child: _isLoading
+            ? const Center(
+                child: CircularProgressIndicator(color: AppColors.primary),
+              )
+            : RefreshIndicator(
+                onRefresh: _loadUserAssets,
+                color: AppColors.primary,
+                child: SingleChildScrollView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 20,
+                    vertical: 16,
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _buildAppBar(),
+                      const SizedBox(height: 24),
+                      _buildHeader(),
+                      const SizedBox(height: 24),
+                      _buildPortfolioSummary(),
+                      const SizedBox(height: 24),
+                      // Widget Selector (Edit modunda göster)
+                      if (_isEditMode) ...[
+                        _buildWidgetSelector(),
+                        const SizedBox(height: 24),
+                      ],
+                      // Dynamic Widgets
+                      ..._buildDynamicWidgets(),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            'Varlıklarım',
+                            style: GoogleFonts.manrope(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                              color: AppColors.textMainDark,
+                            ),
+                          ),
+                          if (_userAssets.isNotEmpty)
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 4,
+                              ),
+                              decoration: BoxDecoration(
+                                color: AppColors.cardDark,
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Text(
+                                '${_userAssets.length} varlık',
+                                style: GoogleFonts.manrope(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  color: AppColors.textSecondaryDark,
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 14),
+                      _buildAssetList(),
+                      const SizedBox(height: 100),
+                    ],
+                  ),
                 ),
               ),
-            ),
-          ],
-        ),
       ),
       bottomNavigationBar: _buildBottomNavigationBar(),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _navigateToAddAsset,
-        backgroundColor: AppColors.primary,
-        elevation: 8,
-        child: const Icon(Icons.add, color: Colors.white, size: 28),
-      ),
-      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
+      floatingActionButton: _buildFAB(),
+      floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
     );
   }
 
   Widget _buildAppBar() {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          IconButton(
-            icon: const Icon(
-              Icons.menu,
-              color: AppColors.textSecondaryDark,
-              size: 28,
+          // Hamburger Menu
+          Container(
+            decoration: BoxDecoration(
+              color: AppColors.cardDark,
+              borderRadius: BorderRadius.circular(12),
             ),
-            onPressed: () {
-              _scaffoldKey.currentState?.openDrawer();
-            },
+            child: IconButton(
+              icon: const Icon(
+                Icons.menu_rounded,
+                color: AppColors.textMainDark,
+                size: 24,
+              ),
+              onPressed: () {
+                _scaffoldKey.currentState?.openDrawer();
+              },
+            ),
           ),
-          Text(
-            'Algorist',
-            style: GoogleFonts.manrope(
-              fontSize: 20,
-              fontWeight: FontWeight.bold,
-              color: AppColors.textMainDark,
+          const Spacer(),
+          // Logo
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [
+                  AppColors.primary.withOpacity(0.1),
+                  AppColors.primary.withOpacity(0.05),
+                ],
+              ),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: AppColors.primary.withOpacity(0.2)),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.auto_graph_rounded,
+                  color: AppColors.primary,
+                  size: 20,
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  'Algorist',
+                  style: GoogleFonts.manrope(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: AppColors.textMainDark,
+                  ),
+                ),
+              ],
             ),
           ),
-          IconButton(
-            icon: Icon(
-              _isEditMode ? Icons.check : Icons.edit,
-              color: AppColors.primary,
-              size: 24,
+          const Spacer(),
+          // Edit Button
+          Container(
+            decoration: BoxDecoration(
+              color: _isEditMode
+                  ? AppColors.primary.withOpacity(0.15)
+                  : AppColors.cardDark,
+              borderRadius: BorderRadius.circular(12),
+              border: _isEditMode
+                  ? Border.all(color: AppColors.primary.withOpacity(0.3))
+                  : null,
             ),
-            onPressed: () {
-              setState(() {
-                _isEditMode = !_isEditMode;
-              });
-            },
+            child: IconButton(
+              icon: Icon(
+                _isEditMode ? Icons.check_rounded : Icons.tune_rounded,
+                color: _isEditMode ? AppColors.primary : AppColors.textMainDark,
+                size: 24,
+              ),
+              onPressed: () {
+                setState(() {
+                  _isEditMode = !_isEditMode;
+                });
+              },
+            ),
           ),
         ],
       ),
@@ -205,54 +553,234 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
   }
 
   Widget _buildHeader() {
-    return Text(
-      'Portföyüm',
-      style: GoogleFonts.manrope(
-        fontSize: 32,
-        fontWeight: FontWeight.bold,
-        color: AppColors.textMainDark,
-        height: 1.2,
-      ),
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    final currentUser = authProvider.currentUser;
+    String userName = 'Kullanıcı';
+    if (currentUser != null) {
+      if (currentUser['fullName'] != null &&
+          currentUser['fullName']!.isNotEmpty) {
+        userName = currentUser['fullName']!;
+      } else {
+        final email = currentUser['email'] ?? '';
+        if (email.contains('@')) {
+          userName = email.split('@')[0];
+        }
+      }
+    }
+    final hour = DateTime.now().hour;
+    String greeting;
+    IconData greetingIcon;
+
+    if (hour < 12) {
+      greeting = 'Günaydın';
+      greetingIcon = Icons.wb_sunny_rounded;
+    } else if (hour < 18) {
+      greeting = 'İyi günler';
+      greetingIcon = Icons.light_mode_rounded;
+    } else {
+      greeting = 'İyi akşamlar';
+      greetingIcon = Icons.nightlight_round;
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(greetingIcon, color: AppColors.primary, size: 20),
+            const SizedBox(width: 8),
+            Text(
+              '$greeting, $userName',
+              style: GoogleFonts.manrope(
+                fontSize: 14,
+                color: AppColors.textSecondaryDark,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Text(
+          'Portföyüm',
+          style: GoogleFonts.manrope(
+            fontSize: 28,
+            fontWeight: FontWeight.bold,
+            color: AppColors.textMainDark,
+            height: 1.2,
+          ),
+        ),
+      ],
     );
   }
 
   Widget _buildPortfolioSummary() {
     final totalValue = _calculateTotalValue();
     final hasAssets = _userAssets.isNotEmpty;
+    final periodChange = _calculatePeriodChange();
+    final isPositive = periodChange['isPositive'] as bool;
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'Toplam Varlık Değeri',
-          style: GoogleFonts.manrope(
-            fontSize: 16,
-            color: AppColors.textSecondaryDark,
-          ),
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Color(0xFF4F46E5), Color(0xFF7C3AED)],
         ),
-        const SizedBox(height: 4),
-        Text(
-          '₺${totalValue.toStringAsFixed(2)}',
-          style: GoogleFonts.manrope(
-            fontSize: 36,
-            fontWeight: FontWeight.bold,
-            color: AppColors.textMainDark,
-            height: 1.2,
-          ),
-        ),
-        if (hasAssets) ...[
-          const SizedBox(height: 8),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
           Text(
-            'Varlık sayısı: ${_userAssets.length}',
+            'Toplam Varlık Değeri',
             style: GoogleFonts.manrope(
-              fontSize: 16,
-              fontWeight: FontWeight.w600,
-              color: AppColors.textSecondaryDark,
+              fontSize: 14,
+              color: Colors.white.withOpacity(0.8),
+              fontWeight: FontWeight.w500,
             ),
           ),
+          const SizedBox(height: 12),
+          Text(
+            '₺${_formatNumber(totalValue)}',
+            style: GoogleFonts.manrope(
+              fontSize: 36,
+              fontWeight: FontWeight.bold,
+              color: Colors.white,
+              letterSpacing: -1,
+            ),
+          ),
+          if (hasAssets) ...[
+            const SizedBox(height: 16),
+            // Kar/Zarar satırı
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(4),
+                        decoration: BoxDecoration(
+                          color: isPositive
+                              ? Colors.green.withOpacity(0.3)
+                              : Colors.red.withOpacity(0.3),
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(
+                          isPositive
+                              ? Icons.arrow_upward_rounded
+                              : Icons.arrow_downward_rounded,
+                          color: isPositive
+                              ? Colors.greenAccent
+                              : Colors.redAccent,
+                          size: 14,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        '${isPositive ? '+' : ''}₺${_formatNumber((periodChange['change'] as double).abs())}',
+                        style: GoogleFonts.manrope(
+                          fontSize: 15,
+                          fontWeight: FontWeight.bold,
+                          color: isPositive
+                              ? Colors.greenAccent
+                              : Colors.redAccent,
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 6,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: isPositive
+                              ? Colors.green.withOpacity(0.2)
+                              : Colors.red.withOpacity(0.2),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(
+                          '${isPositive ? '+' : ''}${(periodChange['percentage'] as double).toStringAsFixed(1)}%',
+                          style: GoogleFonts.manrope(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: isPositive
+                                ? Colors.greenAccent
+                                : Colors.redAccent,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 10),
+                // Dönem seçici
+                GestureDetector(
+                  onTap: _cyclePeriod,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 8,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.15),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          _getPeriodLabel(),
+                          style: GoogleFonts.manrope(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.white,
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        const Icon(
+                          Icons.sync_rounded,
+                          size: 14,
+                          color: Colors.white,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+          if (!hasAssets) ...[
+            const SizedBox(height: 12),
+            Text(
+              'Henüz varlık eklenmedi',
+              style: GoogleFonts.manrope(
+                fontSize: 13,
+                color: Colors.white.withOpacity(0.6),
+              ),
+            ),
+          ],
         ],
-      ],
+      ),
     );
+  }
+
+  String _formatNumber(double value) {
+    if (value >= 1000000) {
+      return '${(value / 1000000).toStringAsFixed(2)}M';
+    } else if (value >= 1000) {
+      return '${(value / 1000).toStringAsFixed(2)}K';
+    }
+    return value.toStringAsFixed(2);
   }
 
   Widget _buildAssetList() {
@@ -295,9 +823,27 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
 
   Widget _buildAssetCard(Map<String, dynamic> asset) {
     final type = asset['type'] as String;
-    final name = asset['name'] as String;
+    final nameRaw = asset['name'] as String;
     final quantity = asset['quantity'] as num?;
     final totalCost = (asset['totalCost'] as num?)?.toDouble() ?? 0.0;
+
+    // Kar/Zarar bilgisini parse et
+    String name = nameRaw;
+    double? profitLossPercent;
+
+    if (nameRaw.contains('|')) {
+      final parts = nameRaw.split('|');
+      name = parts[0];
+      if (parts.length > 1 && type == 'Nakit') {
+        final profitInfo = parts[1];
+        final match = RegExp(
+          r'profitLossPercent:([-\d.]+)',
+        ).firstMatch(profitInfo);
+        if (match != null) {
+          profitLossPercent = double.tryParse(match.group(1)!);
+        }
+      }
+    }
 
     // Icon ve renk belirleme
     IconData icon;
@@ -320,84 +866,132 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
         iconBg = AppColors.blueBg;
         iconColor = const Color(0xFF60A5FA); // blue-400
         break;
+      case 'Nakit':
+        icon = Icons.account_balance_wallet;
+        iconBg = AppColors.greenBg;
+        iconColor = const Color(0xFF10B981); // green-500
+        break;
       default:
         icon = Icons.account_balance_wallet;
         iconBg = AppColors.greenBg;
         iconColor = const Color(0xFF34D399); // green-400
     }
-
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: AppColors.cardDark,
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Row(
-        children: [
-          // Icon
-          Container(
-            width: 48,
-            height: 48,
-            decoration: BoxDecoration(color: iconBg, shape: BoxShape.circle),
-            child: Icon(icon, color: iconColor, size: 24),
+    return InkWell(
+      onTap: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => AssetDetailScreen(asset: asset),
           ),
-          const SizedBox(width: 16),
-          // Content
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Expanded(
-                      child: Text(
-                        name,
+        );
+      },
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 12),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: AppColors.cardDark,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Row(
+          children: [
+            // Icon
+            Container(
+              width: 48,
+              height: 48,
+              decoration: BoxDecoration(color: iconBg, shape: BoxShape.circle),
+              child: Icon(icon, color: iconColor, size: 24),
+            ),
+            const SizedBox(width: 16),
+            // Content
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Expanded(
+                        child: Text(
+                          name,
+                          style: GoogleFonts.manrope(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            color: AppColors.textMainDark,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      Text(
+                        '₺${totalCost.toStringAsFixed(2)}',
                         style: GoogleFonts.manrope(
                           fontSize: 16,
                           fontWeight: FontWeight.bold,
                           color: AppColors.textMainDark,
                         ),
-                        overflow: TextOverflow.ellipsis,
                       ),
-                    ),
-                    Text(
-                      '₺${totalCost.toStringAsFixed(2)}',
-                      style: GoogleFonts.manrope(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        color: AppColors.textMainDark,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  '$type${quantity != null ? ' • ${quantity.toStringAsFixed(quantity.truncateToDouble() == quantity ? 0 : 2)}' : ''}',
-                  style: GoogleFonts.manrope(
-                    fontSize: 14,
-                    color: AppColors.textSecondaryDark,
+                    ],
                   ),
-                ),
-              ],
+                  const SizedBox(height: 4),
+                  Row(
+                    children: [
+                      Text(
+                        '$type${quantity != null ? ' • ${quantity.toStringAsFixed(quantity.truncateToDouble() == quantity ? 0 : 2)}' : ''}',
+                        style: GoogleFonts.manrope(
+                          fontSize: 14,
+                          color: AppColors.textSecondaryDark,
+                        ),
+                      ),
+                      if (profitLossPercent != null) ...[
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 2,
+                          ),
+                          decoration: BoxDecoration(
+                            color:
+                                (profitLossPercent >= 0
+                                        ? AppColors.positiveDark
+                                        : AppColors.negativeDark)
+                                    .withOpacity(0.15),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Text(
+                            '${profitLossPercent >= 0 ? '+' : ''}${profitLossPercent.toStringAsFixed(2)}%',
+                            style: GoogleFonts.manrope(
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                              color: profitLossPercent >= 0
+                                  ? AppColors.positiveDark
+                                  : AppColors.negativeDark,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ],
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
 
   Widget _buildDrawer() {
-    final authProvider = Provider.of<AuthProvider>(context);
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
     final currentUser = authProvider.currentUser;
 
     // Email'den kullanıcı adı oluştur
     String userName = 'Kullanıcı';
     String userEmail = 'user@example.com';
+    String? profileImagePath;
 
     if (currentUser != null) {
       userEmail = currentUser['email'] ?? 'user@example.com';
+      profileImagePath = currentUser['profileImage'];
 
       // Önce fullName'e bak, yoksa email'den username oluştur
       if (currentUser['fullName'] != null &&
@@ -417,51 +1011,83 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
       child: SafeArea(
         child: Column(
           children: [
-            // Header
-            Container(
-              padding: const EdgeInsets.all(24),
-              child: Row(
-                children: [
-                  Container(
-                    width: 60,
-                    height: 60,
-                    decoration: BoxDecoration(
-                      color: AppColors.primary.withOpacity(0.2),
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(
-                      Icons.person,
-                      color: AppColors.primary,
-                      size: 32,
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          userName,
-                          style: GoogleFonts.manrope(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                            color: AppColors.textMainDark,
-                          ),
-                          overflow: TextOverflow.ellipsis,
+            // Header - User Info (Tıklanabilir)
+            InkWell(
+              onTap: () {
+                _navigateFromDrawer(context, const ProfileScreen());
+              },
+              child: Container(
+                padding: const EdgeInsets.all(24),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 60,
+                      height: 60,
+                      decoration: BoxDecoration(
+                        color: AppColors.primary.withOpacity(0.2),
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: AppColors.primary.withOpacity(0.5),
+                          width: 2,
                         ),
-                        const SizedBox(height: 2),
-                        Text(
-                          userEmail,
-                          style: GoogleFonts.manrope(
-                            fontSize: 14,
-                            color: AppColors.textSecondaryDark,
-                          ),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ],
+                      ),
+                      child: ClipOval(
+                        child:
+                            profileImagePath != null &&
+                                profileImagePath.isNotEmpty
+                            ? Image.file(
+                                File(profileImagePath),
+                                width: 60,
+                                height: 60,
+                                fit: BoxFit.cover,
+                                errorBuilder: (context, error, stackTrace) {
+                                  return const Icon(
+                                    Icons.person,
+                                    color: AppColors.primary,
+                                    size: 32,
+                                  );
+                                },
+                              )
+                            : const Icon(
+                                Icons.person,
+                                color: AppColors.primary,
+                                size: 32,
+                              ),
+                      ),
                     ),
-                  ),
-                ],
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            userName,
+                            style: GoogleFonts.manrope(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                              color: AppColors.textMainDark,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            userEmail,
+                            style: GoogleFonts.manrope(
+                              fontSize: 14,
+                              color: AppColors.textSecondaryDark,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
+                      ),
+                    ),
+                    const Icon(
+                      Icons.chevron_right,
+                      color: AppColors.textSecondaryDark,
+                      size: 24,
+                    ),
+                  ],
+                ),
               ),
             ),
             const Divider(color: AppColors.borderDark, height: 1),
@@ -470,19 +1096,31 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
               child: ListView(
                 padding: EdgeInsets.zero,
                 children: [
-                  _buildDrawerItem(Icons.dashboard, 'Gösterge Paneli', () {}),
-                  _buildDrawerItem(
-                    Icons.account_balance_wallet,
-                    'Varlıklarım',
-                    () {},
-                  ),
-                  _buildDrawerItem(Icons.history, 'İşlem Geçmişi', () {}),
-                  _buildDrawerItem(Icons.analytics, 'Analizler', () {}),
-                  _buildDrawerItem(Icons.notifications, 'Bildirimler', () {}),
+                  _buildDrawerItem(Icons.dashboard, 'Gösterge Paneli', () {
+                    _navigateFromDrawer(context, const DashboardScreen());
+                  }),
+                  _buildDrawerItem(Icons.history, 'İşlem Geçmişi', () {
+                    _navigateFromDrawer(
+                      context,
+                      const TransactionHistoryScreen(),
+                    );
+                  }),
+                  _buildDrawerItem(Icons.analytics, 'Analizler', () {
+                    _navigateFromDrawer(context, const AnalyticsScreen());
+                  }),
+                  _buildDrawerItem(Icons.notifications, 'Bildirimler', () {
+                    _navigateFromDrawer(context, const NotificationsScreen());
+                  }),
                   const Divider(color: AppColors.borderDark, height: 1),
-                  _buildDrawerItem(Icons.settings, 'Ayarlar', () {}),
-                  _buildDrawerItem(Icons.help_outline, 'Yardım', () {}),
-                  _buildDrawerItem(Icons.info_outline, 'Hakkında', () {}),
+                  _buildDrawerItem(Icons.settings, 'Ayarlar', () {
+                    _navigateFromDrawer(context, const SettingsScreen());
+                  }),
+                  _buildDrawerItem(Icons.help_outline, 'Yardım', () {
+                    _navigateFromDrawer(context, const HelpScreen());
+                  }),
+                  _buildDrawerItem(Icons.info_outline, 'Hakkında', () {
+                    _navigateFromDrawer(context, const AboutScreen());
+                  }),
                   const Divider(color: AppColors.borderDark, height: 1),
                   _buildDrawerItem(
                     Icons.bug_report,
@@ -554,6 +1192,54 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
     );
   }
 
+  void _navigateFromDrawer(BuildContext context, Widget screen) {
+    Navigator.pop(context); // Drawer'ı kapat
+
+    Navigator.push<String>(
+      context,
+      PageRouteBuilder(
+        pageBuilder: (context, animation, secondaryAnimation) => screen,
+        transitionsBuilder: (context, animation, secondaryAnimation, child) {
+          // Fade + Yumuşak scale animasyonu
+          return FadeTransition(
+            opacity: animation.drive(
+              Tween(
+                begin: 0.0,
+                end: 1.0,
+              ).chain(CurveTween(curve: Curves.easeOut)),
+            ),
+            child: ScaleTransition(
+              scale: animation.drive(
+                Tween(
+                  begin: 0.95,
+                  end: 1.0,
+                ).chain(CurveTween(curve: Curves.easeOutCubic)),
+              ),
+              child: child,
+            ),
+          );
+        },
+        transitionDuration: const Duration(milliseconds: 250),
+        reverseTransitionDuration: const Duration(milliseconds: 200),
+      ),
+    ).then((result) {
+      // Geri dönüldüğünde verileri yenile
+      if (mounted) {
+        _loadUserAssets();
+        // Drawer'ı yenilemek için setState çağır (profil fotoğrafı güncellenmesi için)
+        setState(() {});
+        // 'openDrawer' sinyali geldiyse drawer'ı aç
+        if (result == 'openDrawer') {
+          Future.delayed(const Duration(milliseconds: 150), () {
+            if (mounted) {
+              _scaffoldKey.currentState?.openDrawer();
+            }
+          });
+        }
+      }
+    });
+  }
+
   Widget _buildWidgetSelector() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -597,7 +1283,7 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
     final isEnabled = _enabledWidgets.contains(widgetId);
 
     return GestureDetector(
-      onTap: () {
+      onTap: () async {
         setState(() {
           if (isEnabled) {
             _enabledWidgets.remove(widgetId);
@@ -605,6 +1291,7 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
             _enabledWidgets.add(widgetId);
           }
         });
+        await _saveWidgetPreferences();
       },
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -682,8 +1369,9 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: AppColors.cardDark,
+        color: const Color(0xFF1E1E2E),
         borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.primary.withOpacity(0.1)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -734,19 +1422,19 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
                 IconData icon;
                 switch (entry.key) {
                   case 'Hisse':
-                    color = const Color(0xFFD1D5DB);
+                    color = const Color(0xFF818CF8); // Indigo açık
                     icon = Icons.show_chart;
                     break;
                   case 'Altın':
-                    color = const Color(0xFFFBBF24);
+                    color = const Color(0xFFFBBF24); // Altın sarısı
                     icon = Icons.payments;
                     break;
                   case 'Fon':
-                    color = const Color(0xFF60A5FA);
+                    color = const Color(0xFF4F46E5); // Indigo ana
                     icon = Icons.stacked_line_chart;
                     break;
                   default:
-                    color = const Color(0xFF34D399);
+                    color = const Color(0xFF7C3AED); // Mor
                     icon = Icons.account_balance_wallet;
                 }
 
@@ -818,8 +1506,9 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: AppColors.cardDark,
+        color: const Color(0xFF1E1E2E),
         borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.primary.withOpacity(0.1)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -864,6 +1553,7 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
               height: 200,
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.end,
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                 children: _userAssets.take(6).map((asset) {
                   final value = (asset['totalCost'] as num?)?.toDouble() ?? 0.0;
                   final maxValue = _getHighestAssetValue();
@@ -874,60 +1564,96 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
                   Color color;
                   switch (asset['type'] as String) {
                     case 'Hisse':
-                      color = const Color(0xFFD1D5DB);
+                      color = const Color(0xFF818CF8); // Indigo açık
                       break;
                     case 'Altın':
-                      color = const Color(0xFFFBBF24);
+                      color = const Color(0xFFFBBF24); // Altın sarısı
                       break;
                     case 'Fon':
-                      color = const Color(0xFF60A5FA);
+                      color = const Color(0xFF4F46E5); // Indigo ana
                       break;
                     default:
-                      color = const Color(0xFF34D399);
+                      color = const Color(0xFF7C3AED); // Mor
                   }
 
-                  return Expanded(
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 4),
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.end,
-                        children: [
-                          Text(
-                            '₺${value.toStringAsFixed(0)}',
-                            style: GoogleFonts.manrope(
-                              fontSize: 10,
-                              color: AppColors.textSecondaryDark,
-                            ),
-                            overflow: TextOverflow.ellipsis,
+                  // Tek varlık varsa genişliği sınırla
+                  final barWidth = _userAssets.length == 1 ? 60.0 : null;
+
+                  return _userAssets.length == 1
+                      ? SizedBox(
+                          width: barWidth,
+                          child: _buildBarColumn(
+                            asset,
+                            value,
+                            heightPercentage,
+                            color,
                           ),
-                          const SizedBox(height: 4),
-                          Container(
-                            height: 150 * heightPercentage,
-                            decoration: BoxDecoration(
-                              color: color.withOpacity(0.8),
-                              borderRadius: const BorderRadius.vertical(
-                                top: Radius.circular(4),
-                              ),
-                            ),
+                        )
+                      : Expanded(
+                          child: _buildBarColumn(
+                            asset,
+                            value,
+                            heightPercentage,
+                            color,
                           ),
-                          const SizedBox(height: 4),
-                          Text(
-                            (asset['name'] as String).length > 5
-                                ? '${(asset['name'] as String).substring(0, 5)}...'
-                                : asset['name'] as String,
-                            style: GoogleFonts.manrope(
-                              fontSize: 10,
-                              color: AppColors.textMainDark,
-                            ),
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ],
-                      ),
-                    ),
-                  );
+                        );
                 }).toList(),
               ),
             ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBarColumn(
+    Map<String, dynamic> asset,
+    double value,
+    double heightPercentage,
+    Color color,
+  ) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 4),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.end,
+        children: [
+          Text(
+            '₺${value.toStringAsFixed(0)}',
+            style: GoogleFonts.manrope(
+              fontSize: 10,
+              color: AppColors.textSecondaryDark,
+            ),
+            overflow: TextOverflow.ellipsis,
+          ),
+          const SizedBox(height: 4),
+          Container(
+            height: 150 * heightPercentage,
+            width: 40,
+            decoration: BoxDecoration(
+              color: color.withOpacity(0.8),
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(4),
+              ),
+            ),
+          ),
+          const SizedBox(height: 4),
+          Builder(
+            builder: (context) {
+              final nameRaw = asset['name'] as String;
+              final cleanName = nameRaw.contains('|')
+                  ? nameRaw.split('|')[0]
+                  : nameRaw;
+              return Text(
+                cleanName.length > 5
+                    ? '${cleanName.substring(0, 5)}...'
+                    : cleanName,
+                style: GoogleFonts.manrope(
+                  fontSize: 10,
+                  color: AppColors.textMainDark,
+                ),
+                overflow: TextOverflow.ellipsis,
+              );
+            },
+          ),
         ],
       ),
     );
@@ -1125,50 +1851,163 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
 
   Widget _buildBottomNavigationBar() {
     return Container(
+      height: 56,
       decoration: BoxDecoration(
-        color: AppColors.backgroundDark.withOpacity(0.8),
-        border: Border(top: BorderSide(color: AppColors.borderDark, width: 1)),
-      ),
-      child: SafeArea(
-        child: SizedBox(
-          height: 80,
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
-            children: [
-              _buildNavItem(Icons.pie_chart, 'Portföy', 0, true),
-              _buildNavItem(Icons.candlestick_chart, 'Piyasalar', 1, false),
-              _buildNavItem(Icons.smart_toy, 'AI Analiz', 2, false),
-              _buildNavItem(Icons.person, 'Profil', 3, false),
-            ],
-          ),
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [const Color(0xFF1E293B), const Color(0xFF0F172A)],
         ),
+        border: Border(
+          top: BorderSide(color: AppColors.primary.withOpacity(0.2), width: 1),
+        ),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+        children: [
+          _buildNavItem(
+            Icons.account_balance_wallet_rounded,
+            'Portföy',
+            0,
+            true,
+          ),
+          _buildNavItem(Icons.trending_up_rounded, 'Piyasa', 1, false),
+          const SizedBox(width: 70), // FAB için boşluk
+          _buildNavItem(Icons.bar_chart_rounded, 'Analiz', 2, false),
+          _buildNavItem(Icons.person_rounded, 'Profil', 3, false),
+        ],
       ),
     );
   }
 
   Widget _buildNavItem(IconData icon, String label, int index, bool isActive) {
-    return InkWell(
+    return GestureDetector(
       onTap: () {
-        // Navigation will be implemented later
+        switch (index) {
+          case 0:
+            break;
+          case 1:
+            _showCustomSnackBar(
+              'Piyasalar yakında eklenecek',
+              Icons.trending_up_rounded,
+            );
+            break;
+          case 2:
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (context) => const AnalyticsScreen()),
+            );
+            break;
+          case 3:
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (context) => const ProfileScreen()),
+            );
+            break;
+        }
       },
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            icon,
-            color: isActive ? AppColors.primary : AppColors.textSecondaryDark,
-            size: 24,
-          ),
-          const SizedBox(height: 4),
-          Text(
-            label,
-            style: GoogleFonts.manrope(
-              fontSize: 12,
-              fontWeight: isActive ? FontWeight.bold : FontWeight.w500,
-              color: isActive ? AppColors.primary : AppColors.textSecondaryDark,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: isActive
+              ? AppColors.primary.withOpacity(0.15)
+              : Colors.transparent,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              icon,
+              color: isActive
+                  ? AppColors.primary
+                  : Colors.white.withOpacity(0.6),
+              size: 22,
             ),
+            const SizedBox(height: 2),
+            Text(
+              label,
+              style: GoogleFonts.manrope(
+                fontSize: 10,
+                fontWeight: isActive ? FontWeight.w700 : FontWeight.w500,
+                color: isActive
+                    ? AppColors.primary
+                    : Colors.white.withOpacity(0.6),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showCustomSnackBar(String message, IconData icon) {
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Container(
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(icon, color: Colors.white, size: 20),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  message,
+                  style: GoogleFonts.manrope(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.white,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        backgroundColor: const Color(0xFF1E293B),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: BorderSide(color: AppColors.primary.withOpacity(0.3), width: 1),
+        ),
+        margin: const EdgeInsets.only(bottom: 70, left: 16, right: 16),
+        duration: const Duration(seconds: 2),
+        elevation: 8,
+      ),
+    );
+  }
+
+  Widget _buildFAB() {
+    return Container(
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [AppColors.primary, AppColors.primary.withOpacity(0.8)],
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.primary.withOpacity(0.4),
+            blurRadius: 12,
+            spreadRadius: 2,
+            offset: const Offset(0, 4),
           ),
         ],
+      ),
+      child: FloatingActionButton(
+        onPressed: _showFABMenu,
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        child: const Icon(Icons.add_rounded, color: Colors.white, size: 30),
       ),
     );
   }

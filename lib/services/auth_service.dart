@@ -1,12 +1,11 @@
-import 'package:crypto/crypto.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'dart:convert' show utf8;
+import 'package:bcrypt/bcrypt.dart';
 import 'database_service.dart';
 
 /// Güvenli Authentication Servisi
-/// - Şifreleri SHA-256 ile hashler
+/// - Şifreleri BCrypt ile hashler
 /// - Kullanıcı bilgilerini SQLite veritabanında saklar
-/// - Salt kullanarak rainbow table saldırılarını önler
+/// - BCrypt otomatik olarak salt kullanır
 class AuthService {
   // Singleton pattern
   static final AuthService _instance = AuthService._internal();
@@ -21,21 +20,19 @@ class AuthService {
   static const String _keyCurrentUser = 'current_user';
   static const String _keyUserEmail = 'user_email';
 
-  /// Şifreyi güvenli şekilde hashler (SHA-256 + Salt)
-  String _hashPassword(String password, String salt) {
-    final bytes = utf8.encode(password + salt);
-    final digest = sha256.convert(bytes);
-    return digest.toString();
+  /// Şifreyi BCrypt ile hashler
+  String _hashPassword(String password) {
+    return BCrypt.hashpw(password, BCrypt.gensalt());
   }
 
-  /// Rastgele salt oluşturur
-  String _generateSalt(String email) {
-    // Email + timestamp kombinasyonu ile unique salt
-    final timestamp = DateTime.now().millisecondsSinceEpoch.toString();
-    final saltInput = email + timestamp;
-    final bytes = utf8.encode(saltInput);
-    final digest = sha256.convert(bytes);
-    return digest.toString().substring(0, 16);
+  /// Şifreyi doğrular
+  bool _verifyPassword(String password, String hashedPassword) {
+    try {
+      return BCrypt.checkpw(password, hashedPassword);
+    } catch (e) {
+      print('❌ Password verification error: $e');
+      return false;
+    }
   }
 
   /// Kullanıcı kaydı oluşturur
@@ -43,6 +40,7 @@ class AuthService {
     required String email,
     required String password,
     required String fullName,
+    String? phone,
   }) async {
     try {
       print('👤 Registering user: $email');
@@ -54,16 +52,34 @@ class AuthService {
         return false; // Kullanıcı zaten mevcut
       }
 
-      // Salt oluştur ve şifreyi hashle
-      final salt = _generateSalt(email);
-      final hashedPassword = _hashPassword(password, salt);
+      // İsim kontrolü
+      if (fullName.isNotEmpty) {
+        final userByName = await _db.getUserByFullName(fullName);
+        if (userByName != null) {
+          print('⚠️ Full name already exists: $fullName');
+          throw Exception('Bu isim zaten kullanılıyor');
+        }
+      }
+
+      // Telefon kontrolü
+      if (phone != null && phone.isNotEmpty) {
+        final userByPhone = await _db.getUserByPhone(phone);
+        if (userByPhone != null) {
+          print('⚠️ Phone already exists: $phone');
+          throw Exception('Bu telefon numarası zaten kullanılıyor');
+        }
+      }
+
+      // BCrypt ile şifreyi hashle (salt otomatik eklenir)
+      final hashedPassword = _hashPassword(password);
 
       // Kullanıcıyı veritabanına kaydet
       final userId = await _db.insertUser({
         'email': email,
         'fullName': fullName,
+        'phone': phone,
         'hashedPassword': hashedPassword,
-        'salt': salt,
+        'salt': 'bcrypt', // BCrypt kendi salt'ını kullanır
         'createdAt': DateTime.now().toIso8601String(),
       });
 
@@ -88,16 +104,13 @@ class AuthService {
       }
 
       final storedHash = userData['hashedPassword'] as String;
-      final salt = userData['salt'] as String;
 
-      // Girilen şifreyi hashle ve karşılaştır
-      final hashedPassword = _hashPassword(password, salt);
-
-      if (hashedPassword == storedHash) {
+      // BCrypt ile şifreyi doğrula
+      if (_verifyPassword(password, storedHash)) {
         // Giriş başarılı - oturum bilgilerini kaydet
         final prefs = await SharedPreferences.getInstance();
         await prefs.setBool(_keyIsLoggedIn, true);
-        await prefs.setString(_keyCurrentUser, userData['fullName']);
+        await prefs.setString(_keyCurrentUser, userData['fullName'] ?? '');
         await prefs.setString(_keyUserEmail, email);
 
         print('✅ Login successful for: $email');
@@ -195,6 +208,16 @@ class AuthService {
     }
   }
 
+  /// Kullanıcının tüm verilerini getirir
+  Future<Map<String, dynamic>?> getUserData(String email) async {
+    try {
+      return await _db.getUserByEmail(email);
+    } catch (e) {
+      print('Get user data error: $e');
+      return null;
+    }
+  }
+
   /// Şifreyi sıfırlar (email doğrulamalı)
   Future<bool> resetPassword({
     required String email,
@@ -210,20 +233,8 @@ class AuthService {
         return false;
       }
 
-      // Yeni salt ve hash oluştur
-      final salt = _generateSalt(email);
-      final hashedPassword = _hashPassword(newPassword, salt);
-
-      // Kullanıcı verisini güncelle
-      userData['hashedPassword'] = hashedPassword;
-      userData['salt'] = salt;
-      userData['passwordUpdatedAt'] = DateTime.now().toIso8601String();
-
-      final userId = userData['id'] as int;
-      await _db.database.then(
-        (db) =>
-            db.update('users', userData, where: 'id = ?', whereArgs: [userId]),
-      );
+      // Şifreyi güncelle (BCrypt hash işlemi DatabaseService'de yapılır)
+      await _db.updateUserPassword(email, newPassword);
 
       print('✅ Password reset successful for: $email');
       return true;
