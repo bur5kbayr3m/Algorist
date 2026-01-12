@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
+import '../providers/theme_provider.dart';
+import '../services/biometric_service.dart';
 import '../theme/app_colors.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -13,12 +15,88 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   bool _notificationsEnabled = true;
-  bool _darkModeEnabled = true;
   bool _biometricEnabled = false;
+  bool _biometricAvailable = false;
+  String _biometricType = 'Biyometrik Kimlik';
+
+  @override
+  void initState() {
+    super.initState();
+    _checkBiometricAvailability();
+  }
+
+  Future<void> _checkBiometricAvailability() async {
+    final biometricService = BiometricService.instance;
+    final isAvailable = await biometricService.isBiometricAvailable();
+    final isEnabled = await biometricService.isBiometricEnabled();
+
+    if (isAvailable) {
+      final types = await biometricService.getAvailableBiometrics();
+      final typeName = biometricService.getBiometricTypeName(types);
+
+      if (mounted) {
+        setState(() {
+          _biometricAvailable = isAvailable;
+          _biometricEnabled = isEnabled;
+          _biometricType = typeName;
+        });
+      }
+    }
+  }
+
+  Future<void> _toggleBiometric(bool value) async {
+    final biometricService = BiometricService.instance;
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    final currentUser = authProvider.currentUser;
+
+    if (currentUser == null) return;
+
+    final email = currentUser['email'] ?? '';
+
+    final success = await biometricService.setBiometricEnabled(value);
+
+    if (success) {
+      await biometricService.saveBiometricPreference(email, value);
+      if (value) {
+        await biometricService.saveEmailForBiometric(email);
+      } else {
+        await biometricService.clearBiometricData();
+      }
+
+      if (mounted) {
+        setState(() => _biometricEnabled = value);
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              value
+                  ? '$_biometricType ile giriş aktif edildi'
+                  : 'Biyometrik giriş kapatıldı',
+            ),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } else {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              value
+                  ? 'Biyometrik kimlik doğrulama başarısız'
+                  : 'Biyometrik giriş kapatılamadı',
+            ),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    final themeProvider = Provider.of<ThemeProvider>(context);
     final currentUser = authProvider.currentUser;
 
     String userName = 'Kullanıcı';
@@ -82,11 +160,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
             _buildSettingItem(
               icon: Icons.dark_mode_outlined,
               title: 'Koyu Tema',
-              subtitle: 'Karanlık mod aktif',
+              subtitle: themeProvider.isDarkMode
+                  ? 'Karanlık mod aktif'
+                  : 'Aydınlık mod aktif',
               trailing: Switch(
-                value: _darkModeEnabled,
+                value: themeProvider.isDarkMode,
                 onChanged: (value) {
-                  setState(() => _darkModeEnabled = value);
+                  themeProvider.setTheme(value);
                 },
                 activeThumbColor: AppColors.primary,
               ),
@@ -99,12 +179,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
             _buildSettingItem(
               icon: Icons.fingerprint_outlined,
               title: 'Biyometrik Doğrulama',
-              subtitle: 'Parmak izi/Yüz tanıma',
+              subtitle: _biometricAvailable
+                  ? '$_biometricType ile giriş'
+                  : 'Bu cihazda kullanılamıyor',
               trailing: Switch(
                 value: _biometricEnabled,
-                onChanged: (value) {
-                  setState(() => _biometricEnabled = value);
-                },
+                onChanged: _biometricAvailable ? _toggleBiometric : null,
                 activeThumbColor: AppColors.primary,
               ),
             ),

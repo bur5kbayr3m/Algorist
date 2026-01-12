@@ -37,13 +37,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
     if (email != null) {
       final isVerified = await EmailVerificationService.instance
           .isEmailVerified(email);
-      if (mounted) {
-        setState(() {
-          _isEmailVerified = isVerified;
-        });
-        if (!isVerified) {
-          _showVerificationWarning();
-        }
+      if (mounted && !isVerified) {
+        _showVerificationWarning();
       }
     }
   }

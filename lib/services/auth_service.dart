@@ -1,6 +1,7 @@
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:bcrypt/bcrypt.dart';
 import 'database_service.dart';
+import '../utils/app_logger.dart';
 
 /// Güvenli Authentication Servisi
 /// - Şifreleri BCrypt ile hashler
@@ -30,7 +31,7 @@ class AuthService {
     try {
       return BCrypt.checkpw(password, hashedPassword);
     } catch (e) {
-      print('❌ Password verification error: $e');
+      AppLogger.log('❌ Password verification error: $e');
       return false;
     }
   }
@@ -43,12 +44,12 @@ class AuthService {
     String? phone,
   }) async {
     try {
-      print('👤 Registering user: $email');
+      AppLogger.log('👤 Registering user: $email');
 
       // Kullanıcı zaten var mı kontrol et
       final existingUser = await _db.getUserByEmail(email);
       if (existingUser != null) {
-        print('⚠️ User already exists: $email');
+        AppLogger.log('⚠️ User already exists: $email');
         return false; // Kullanıcı zaten mevcut
       }
 
@@ -56,7 +57,7 @@ class AuthService {
       if (fullName.isNotEmpty) {
         final userByName = await _db.getUserByFullName(fullName);
         if (userByName != null) {
-          print('⚠️ Full name already exists: $fullName');
+          AppLogger.log('⚠️ Full name already exists: $fullName');
           throw Exception('Bu isim zaten kullanılıyor');
         }
       }
@@ -65,7 +66,7 @@ class AuthService {
       if (phone != null && phone.isNotEmpty) {
         final userByPhone = await _db.getUserByPhone(phone);
         if (userByPhone != null) {
-          print('⚠️ Phone already exists: $phone');
+          AppLogger.log('⚠️ Phone already exists: $phone');
           throw Exception('Bu telefon numarası zaten kullanılıyor');
         }
       }
@@ -83,10 +84,10 @@ class AuthService {
         'createdAt': DateTime.now().toIso8601String(),
       });
 
-      print('✅ User registered with ID: $userId');
+      AppLogger.log('✅ User registered with ID: $userId');
       return userId > 0;
     } catch (e) {
-      print('❌ Register error: $e');
+      AppLogger.log('❌ Register error: $e');
       return false;
     }
   }
@@ -94,12 +95,12 @@ class AuthService {
   /// Kullanıcı girişi yapar
   Future<bool> login({required String email, required String password}) async {
     try {
-      print('🔐 Login attempt for: $email');
+      AppLogger.log('🔐 Login attempt for: $email');
 
       // Kullanıcıyı veritabanından al
       final userData = await _db.getUserByEmail(email);
       if (userData == null) {
-        print('❌ User not found: $email');
+        AppLogger.log('❌ User not found: $email');
         return false; // Kullanıcı bulunamadı
       }
 
@@ -113,14 +114,14 @@ class AuthService {
         await prefs.setString(_keyCurrentUser, userData['fullName'] ?? '');
         await prefs.setString(_keyUserEmail, email);
 
-        print('✅ Login successful for: $email');
+        AppLogger.log('✅ Login successful for: $email');
         return true;
       }
 
-      print('❌ Invalid password for: $email');
+      AppLogger.log('❌ Invalid password for: $email');
       return false;
     } catch (e) {
-      print('❌ Login error: $e');
+      AppLogger.log('❌ Login error: $e');
       return false;
     }
   }
@@ -128,7 +129,7 @@ class AuthService {
   /// Google ile giriş simülasyonu
   Future<bool> signInWithGoogle() async {
     try {
-      print('🔵 Google sign-in attempt');
+      AppLogger.log('🔵 Google sign-in attempt');
 
       // Gerçek uygulamada Google Sign-In SDK kullanılır
       // Şimdilik mock implementation
@@ -146,7 +147,7 @@ class AuthService {
           'provider': 'google',
           'createdAt': DateTime.now().toIso8601String(),
         });
-        print('✅ Google user registered: $email');
+        AppLogger.log('✅ Google user registered: $email');
       }
 
       // Oturum aç
@@ -155,10 +156,10 @@ class AuthService {
       await prefs.setString(_keyCurrentUser, fullName);
       await prefs.setString(_keyUserEmail, email);
 
-      print('✅ Google sign-in successful');
+      AppLogger.log('✅ Google sign-in successful');
       return true;
     } catch (e) {
-      print('❌ Google sign-in error: $e');
+      AppLogger.log('❌ Google sign-in error: $e');
       return false;
     }
   }
@@ -171,7 +172,19 @@ class AuthService {
       await prefs.remove(_keyCurrentUser);
       await prefs.remove(_keyUserEmail);
     } catch (e) {
-      print('Logout error: $e');
+      AppLogger.log('Logout error: $e');
+    }
+  }
+
+  /// Kullanıcıyı giriş yapmış olarak işaretle (biyometrik giriş için)
+  Future<void> setLoggedIn(String email) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_keyIsLoggedIn, true);
+      await prefs.setString(_keyUserEmail, email);
+      AppLogger.log('✅ User logged in via biometric: $email');
+    } catch (e) {
+      AppLogger.log('❌ Set logged in error: $e');
     }
   }
 
@@ -181,7 +194,7 @@ class AuthService {
       final prefs = await SharedPreferences.getInstance();
       return prefs.getBool(_keyIsLoggedIn) ?? false;
     } catch (e) {
-      print('Check login error: $e');
+      AppLogger.log('Check login error: $e');
       return false;
     }
   }
@@ -192,7 +205,7 @@ class AuthService {
       final prefs = await SharedPreferences.getInstance();
       return prefs.getString(_keyCurrentUser);
     } catch (e) {
-      print('Get user name error: $e');
+      AppLogger.log('Get user name error: $e');
       return null;
     }
   }
@@ -203,7 +216,7 @@ class AuthService {
       final prefs = await SharedPreferences.getInstance();
       return prefs.getString(_keyUserEmail);
     } catch (e) {
-      print('Get user email error: $e');
+      AppLogger.log('Get user email error: $e');
       return null;
     }
   }
@@ -213,7 +226,7 @@ class AuthService {
     try {
       return await _db.getUserByEmail(email);
     } catch (e) {
-      print('Get user data error: $e');
+      AppLogger.log('Get user data error: $e');
       return null;
     }
   }
@@ -224,22 +237,72 @@ class AuthService {
     required String newPassword,
   }) async {
     try {
-      print('🔑 Resetting password for: $email');
+      AppLogger.log('🔑 Resetting password for: $email');
 
       // Kullanıcı var mı kontrol et
       final userData = await _db.getUserByEmail(email);
       if (userData == null) {
-        print('❌ User not found: $email');
+        AppLogger.log('❌ User not found: $email');
         return false;
       }
 
       // Şifreyi güncelle (BCrypt hash işlemi DatabaseService'de yapılır)
       await _db.updateUserPassword(email, newPassword);
 
-      print('✅ Password reset successful for: $email');
+      // Doğrulama kodunu temizle
+      await _db.clearPasswordResetCode(email);
+
+      AppLogger.log('✅ Password reset successful for: $email');
       return true;
     } catch (e) {
-      print('❌ Reset password error: $e');
+      AppLogger.log('❌ Reset password error: $e');
+      return false;
+    }
+  }
+
+  /// Şifre sıfırlama kodu gönderir
+  Future<bool> sendPasswordResetCode(String email) async {
+    try {
+      AppLogger.log('📧 Sending password reset code to: $email');
+
+      // Kod oluştur ve kaydet
+      final code = await _db.generatePasswordResetCode(email);
+
+      if (code == null) {
+        AppLogger.log('❌ Failed to generate reset code');
+        return false;
+      }
+
+      // E-posta gönderme simülasyonu (gerçek uygulamada email servisi kullanılır)
+      AppLogger.log('📨 Password reset code: $code');
+      AppLogger.log('✅ Reset code sent to: $email');
+
+      // TODO: Gerçek uygulamada email servisi ile kod gönderilmeli
+      // await EmailService.sendResetCode(email, code);
+
+      return true;
+    } catch (e) {
+      AppLogger.log('❌ Send reset code error: $e');
+      return false;
+    }
+  }
+
+  /// Şifre sıfırlama kodunu doğrular
+  Future<bool> verifyPasswordResetCode(String email, String code) async {
+    try {
+      AppLogger.log('🔐 Verifying reset code for: $email');
+
+      final isValid = await _db.verifyPasswordResetCode(email, code);
+
+      if (isValid) {
+        AppLogger.log('✅ Reset code verified for: $email');
+      } else {
+        AppLogger.log('❌ Invalid or expired reset code');
+      }
+
+      return isValid;
+    } catch (e) {
+      AppLogger.log('❌ Verify reset code error: $e');
       return false;
     }
   }
@@ -247,7 +310,7 @@ class AuthService {
   /// Tüm kullanıcı verilerini siler (GDPR uyumluluk için)
   Future<void> deleteAccount(String email) async {
     try {
-      print('🗑️ Deleting account: $email');
+      AppLogger.log('🗑️ Deleting account: $email');
 
       // Önce kullanıcının tüm assetlerini sil
       await _db.deleteUserAssets(email);
@@ -260,9 +323,9 @@ class AuthService {
       // Oturumu kapat
       await logout();
 
-      print('✅ Account deleted: $email');
+      AppLogger.log('✅ Account deleted: $email');
     } catch (e) {
-      print('❌ Delete account error: $e');
+      AppLogger.log('❌ Delete account error: $e');
     }
   }
 }

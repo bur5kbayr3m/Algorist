@@ -5,6 +5,7 @@ import '../providers/auth_provider.dart';
 import '../services/portfolio_service.dart';
 import '../services/email_verification_service.dart';
 import '../theme/app_colors.dart';
+import '../utils/app_logger.dart';
 import 'email_verification_screen.dart';
 
 class AddAssetScreen extends StatefulWidget {
@@ -498,7 +499,7 @@ class _AddAssetScreenState extends State<AddAssetScreen> {
         }
       }
     } catch (e) {
-      print('❌ Error deducting cash: $e');
+      AppLogger.error('Error deducting cash', e);
       // Hata durumunda sessizce devam et
     }
   }

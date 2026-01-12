@@ -4,6 +4,9 @@ import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
 import '../services/portfolio_service.dart';
 import '../theme/app_colors.dart';
+import '../widgets/app_bottom_navigation.dart';
+import '../widgets/offline_mode_banner.dart';
+import '../widgets/loading_widgets.dart';
 
 class AnalyticsScreen extends StatefulWidget {
   const AnalyticsScreen({super.key});
@@ -50,56 +53,62 @@ class _AnalyticsScreenState extends State<AnalyticsScreen>
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppColors.backgroundDark,
-      appBar: AppBar(
-        backgroundColor: AppColors.backgroundDark,
-        elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_rounded, color: Colors.white),
-          onPressed: () => Navigator.pop(context, 'openDrawer'),
-        ),
-        title: Text(
-          'Analizler',
-          style: GoogleFonts.manrope(
-            fontSize: 20,
-            fontWeight: FontWeight.bold,
-            color: Colors.white,
-          ),
-        ),
-        centerTitle: true,
-        bottom: TabBar(
-          controller: _tabController,
-          isScrollable: true,
-          indicatorColor: AppColors.primary,
-          indicatorWeight: 3,
-          labelColor: AppColors.primary,
-          unselectedLabelColor: AppColors.textSecondaryDark,
-          labelStyle: GoogleFonts.manrope(
-            fontSize: 14,
-            fontWeight: FontWeight.w600,
-          ),
-          tabs: const [
-            Tab(text: 'Genel Bakış'),
-            Tab(text: 'Dağılım'),
-            Tab(text: 'Performans'),
-            Tab(text: 'Risk'),
-          ],
-        ),
-      ),
-      body: _isLoading
-          ? const Center(
-              child: CircularProgressIndicator(color: AppColors.primary),
-            )
-          : TabBarView(
+    return Stack(
+      children: [
+        Scaffold(
+          backgroundColor: AppColors.backgroundDark,
+          bottomNavigationBar: const AppBottomNavigation(currentIndex: 2),
+          appBar: AppBar(
+            backgroundColor: AppColors.backgroundDark,
+            elevation: 0,
+            leading: IconButton(
+              icon: const Icon(Icons.arrow_back_ios_rounded, color: Colors.white),
+              onPressed: () => Navigator.pop(context, 'openDrawer'),
+            ),
+            title: Text(
+              'Analizler',
+              style: GoogleFonts.manrope(
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+                color: Colors.white,
+              ),
+            ),
+            centerTitle: true,
+            bottom: TabBar(
               controller: _tabController,
-              children: [
+              isScrollable: true,
+              indicatorColor: AppColors.primary,
+              indicatorWeight: 3,
+              labelColor: AppColors.primary,
+              unselectedLabelColor: AppColors.textSecondaryDark,
+              labelStyle: GoogleFonts.manrope(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+              ),
+              tabs: const [
+                Tab(text: 'Genel Bakış'),
+                Tab(text: 'Dağılım'),
+                Tab(text: 'Performans'),
+                Tab(text: 'Risk'),
+              ],
+            ),
+          ),
+          body: _isLoading
+              ? const Center(
+                  child: CircularProgressIndicator(color: AppColors.primary),
+                )
+              : TabBarView(
+                  controller: _tabController,
+                  children: [
                 _buildOverviewTab(),
                 _buildDistributionTab(),
                 _buildPerformanceTab(),
                 _buildRiskTab(),
               ],
             ),
+        ),
+        const OfflineModeBanner(),
+      ],
     );
   }
 

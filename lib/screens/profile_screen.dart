@@ -8,7 +8,11 @@ import '../services/database_service.dart';
 import '../services/email_verification_service.dart';
 import '../services/notification_service.dart';
 import '../theme/app_colors.dart';
+import '../utils/app_logger.dart';
 import 'email_verification_screen.dart';
+import '../widgets/app_bottom_navigation.dart';
+import '../widgets/offline_mode_banner.dart';
+import '../widgets/loading_widgets.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -348,62 +352,70 @@ class _ProfileScreenState extends State<ProfileScreen> {
             emailUsername.substring(1);
       }
     }
-
-    return Scaffold(
-      backgroundColor: AppColors.backgroundDark,
-      appBar: AppBar(
-        backgroundColor: AppColors.surfaceDark,
-        elevation: 0,
-        leading: IconButton(
-          icon: Icon(Icons.arrow_back, color: AppColors.textMainDark),
-          onPressed: () => Navigator.pop(context, 'openDrawer'),
-        ),
-        title: Text(
-          'Profil',
-          style: GoogleFonts.manrope(
-            fontSize: 20,
-            fontWeight: FontWeight.bold,
-            color: AppColors.textMainDark,
-          ),
-        ),
-        actions: [
-          if (!_isEditing)
-            IconButton(
-              icon: Icon(Icons.edit, color: AppColors.primary),
-              onPressed: () => setState(() => _isEditing = true),
-            )
-          else
-            TextButton(
-              onPressed: _isLoading ? null : _saveProfile,
-              child: Text(
-                'Kaydet',
-                style: GoogleFonts.manrope(
-                  color: AppColors.primary,
-                  fontWeight: FontWeight.w600,
-                ),
+    return Stack(
+      children: [
+        Scaffold(
+          backgroundColor: AppColors.backgroundDark,
+          bottomNavigationBar: const AppBottomNavigation(currentIndex: 3),
+          appBar: AppBar(
+            backgroundColor: AppColors.surfaceDark,
+            elevation: 0,
+            leading: IconButton(
+              icon: Icon(Icons.arrow_back, color: AppColors.textMainDark),
+              onPressed: () => Navigator.pop(context, 'openDrawer'),
+            ),
+            title: Text(
+              'Profil',
+              style: GoogleFonts.manrope(
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+                color: AppColors.textMainDark,
               ),
             ),
-        ],
-      ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Form(
-          key: _formKey,
-          child: Column(
-            children: [
-              _buildProfileHeader(userName, userEmail),
-              const SizedBox(height: 32),
-              _buildInfoSection(),
-              const SizedBox(height: 24),
-              _buildSecuritySection(),
-              const SizedBox(height: 24),
-              _buildStatsSection(),
-              const SizedBox(height: 24),
-              _buildPreferencesSection(),
+            actions: [
+              if (!_isEditing)
+                IconButton(
+                  icon: Icon(Icons.edit, color: AppColors.primary),
+                  onPressed: () => setState(() => _isEditing = true),
+                )
+              else
+                TextButton(
+                  onPressed: _isLoading ? null : _saveProfile,
+                  child: Text(
+                    'Kaydet',
+                    style: GoogleFonts.manrope(
+                      color: AppColors.primary,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
             ],
           ),
+          body: SingleChildScrollView(
+            padding: const EdgeInsets.all(16),
+            child: Form(
+              key: _formKey,
+              child: Column(
+                children: [
+                  _buildProfileHeader(userName, userEmail),
+                  const SizedBox(height: 32),
+                  _buildInfoSection(),
+                  const SizedBox(height: 24),
+                  _buildSecuritySection(),
+                  const SizedBox(height: 24),
+                  _buildStatsSection(),
+                  const SizedBox(height: 24),
+                  _buildPreferencesSection(),
+                  const SizedBox(height: 24),
+                  _buildLogoutButton(),
+                  const SizedBox(height: 32),
+                ],
+              ),
+            ),
+          ),
         ),
-      ),
+        const OfflineModeBanner(),
+      ],
     );
   }
 
@@ -720,6 +732,169 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
+  Widget _buildLogoutButton() {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceDark,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.red.withOpacity(0.3)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Hesap',
+            style: GoogleFonts.manrope(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: AppColors.textMainDark,
+            ),
+          ),
+          const SizedBox(height: 20),
+          GestureDetector(
+            onTap: () async {
+              final shouldLogout = await showDialog<bool>(
+                context: context,
+                builder: (context) => AlertDialog(
+                  backgroundColor: AppColors.surfaceDark,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(20),
+                    side: BorderSide(color: Colors.red.withOpacity(0.3)),
+                  ),
+                  title: Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: Colors.red.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: const Icon(
+                          Icons.logout_rounded,
+                          color: Colors.red,
+                          size: 24,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Text(
+                        'Çıkış Yap',
+                        style: GoogleFonts.manrope(
+                          color: Colors.white,
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                  content: Text(
+                    'Hesabınızdan çıkış yapmak istediğinizden emin misiniz?',
+                    style: GoogleFonts.manrope(
+                      color: AppColors.textSecondaryDark,
+                      fontSize: 14,
+                    ),
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(context, false),
+                      child: Text(
+                        'İptal',
+                        style: GoogleFonts.manrope(
+                          color: AppColors.textSecondaryDark,
+                        ),
+                      ),
+                    ),
+                    ElevatedButton(
+                      onPressed: () => Navigator.pop(context, true),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.red,
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      child: Text(
+                        'Çıkış Yap',
+                        style: GoogleFonts.manrope(fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                  ],
+                ),
+              );
+
+              if (shouldLogout == true && mounted) {
+                final authProvider = Provider.of<AuthProvider>(
+                  context,
+                  listen: false,
+                );
+                await authProvider.logout();
+                if (mounted) {
+                  Navigator.of(
+                    context,
+                  ).pushNamedAndRemoveUntil('/', (route) => false);
+                }
+              }
+            },
+            child: Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.red.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.red.withOpacity(0.3)),
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(
+                      color: Colors.red.withOpacity(0.2),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Icon(
+                      Icons.logout_rounded,
+                      color: Colors.red,
+                      size: 22,
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Çıkış Yap',
+                          style: GoogleFonts.manrope(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.red,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Hesabınızdan güvenli çıkış yapın',
+                          style: GoogleFonts.manrope(
+                            fontSize: 12,
+                            color: AppColors.textSecondaryDark,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Icon(
+                    Icons.arrow_forward_ios_rounded,
+                    color: Colors.red.withOpacity(0.7),
+                    size: 16,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildTextField({
     required TextEditingController controller,
     required String label,
@@ -889,7 +1064,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         'transactionCount': transactionCount,
       };
     } catch (e) {
-      print('Error loading user stats: $e');
+      AppLogger.error('Error loading user stats', e);
       return {
         'assetCount': 0,
         'totalValue': 0.0,

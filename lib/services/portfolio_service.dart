@@ -1,4 +1,5 @@
 import 'database_service.dart';
+import '../utils/app_logger.dart';
 
 /// Portfolio Service - Kullanıcı portföy verilerini yöneten servis
 /// Veriler SQLite veritabanında kalıcı olarak saklanır
@@ -14,7 +15,7 @@ class PortfolioService {
     try {
       return await _db.getUserAssets(userEmail);
     } catch (e) {
-      print('❌ Error getting user assets: $e');
+      AppLogger.log('❌ Error getting user assets: $e');
       return [];
     }
   }
@@ -30,7 +31,7 @@ class PortfolioService {
 
       await _db.insertAsset(asset);
     } catch (e) {
-      print('❌ Error adding asset: $e');
+      AppLogger.log('❌ Error adding asset: $e');
       rethrow;
     }
   }
@@ -43,7 +44,7 @@ class PortfolioService {
     try {
       await _db.updateAsset(assetId, updatedAsset);
     } catch (e) {
-      print('Error updating asset: $e');
+      AppLogger.log('Error updating asset: $e');
       rethrow;
     }
   }
@@ -53,7 +54,7 @@ class PortfolioService {
     try {
       await _db.deleteAsset(assetId);
     } catch (e) {
-      print('Error deleting asset: $e');
+      AppLogger.log('Error deleting asset: $e');
       rethrow;
     }
   }
@@ -87,7 +88,7 @@ class PortfolioService {
         'assetCount': assets.length,
       };
     } catch (e) {
-      print('Error calculating portfolio stats: $e');
+      AppLogger.log('Error calculating portfolio stats: $e');
       return {
         'totalValue': 0.0,
         'totalCost': 0.0,
@@ -103,8 +104,9 @@ class PortfolioService {
     try {
       await _db.deleteUserAssets(userEmail);
     } catch (e) {
-      print('Error clearing user portfolio: $e');
+      AppLogger.log('Error clearing user portfolio: $e');
       rethrow;
     }
   }
 }
+

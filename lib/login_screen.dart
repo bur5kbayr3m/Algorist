@@ -6,6 +6,8 @@ import 'package:provider/provider.dart';
 import 'providers/auth_provider.dart';
 import 'screens/portfolio_screen.dart';
 import 'screens/register_screen.dart';
+import 'screens/forgot_password_screen.dart';
+import 'services/biometric_service.dart';
 import 'theme/app_colors.dart';
 
 // --- GOOGLE ICON SVG ---
@@ -24,6 +26,70 @@ class _LoginScreenState extends State<LoginScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _formKey = GlobalKey<FormState>();
+  bool _biometricAvailable = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkBiometric();
+  }
+
+  Future<void> _checkBiometric() async {
+    final biometricService = BiometricService.instance;
+    final isAvailable = await biometricService.isBiometricAvailable();
+    final isEnabled = await biometricService.isBiometricEnabled();
+
+    if (mounted) {
+      setState(() {
+        _biometricAvailable = isAvailable && isEnabled;
+      });
+    }
+  }
+
+  Future<void> _handleBiometricLogin() async {
+    final biometricService = BiometricService.instance;
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+
+    // Kayıtlı email'i al
+    final email = await biometricService.getEmailForBiometric();
+
+    if (email == null || email.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Biyometrik giriş için önce normal giriş yapmalısınız',
+            ),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+      return;
+    }
+
+    // Biyometrik doğrulama yap
+    final authenticated = await biometricService.authenticate(
+      reason: 'Algorist\'e giriş yapmak için kimliğinizi doğrulayın',
+    );
+
+    if (authenticated && mounted) {
+      // Otomatik giriş yap
+      final success = await authProvider.loginWithEmail(email);
+
+      if (success && mounted) {
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (_) => const PortfolioScreen()),
+        );
+      } else if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(authProvider.errorMessage ?? 'Giriş başarısız'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
 
   @override
   void dispose() {
@@ -36,6 +102,7 @@ class _LoginScreenState extends State<LoginScreen> {
     if (!_formKey.currentState!.validate()) return;
 
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    final biometricService = BiometricService.instance;
 
     final success = await authProvider.login(
       email: _emailController.text.trim(),
@@ -43,6 +110,14 @@ class _LoginScreenState extends State<LoginScreen> {
     );
 
     if (success && mounted) {
+      // Biyometrik etkinse, email'i kaydet
+      final isBiometricEnabled = await biometricService.isBiometricEnabled();
+      if (isBiometricEnabled) {
+        await biometricService.saveEmailForBiometric(
+          _emailController.text.trim(),
+        );
+      }
+
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(builder: (_) => const PortfolioScreen()),
       );
@@ -281,7 +356,13 @@ class _LoginScreenState extends State<LoginScreen> {
                         // Şifremi Unuttum
                         Center(
                           child: TextButton(
-                            onPressed: () {},
+                            onPressed: () {
+                              Navigator.of(context).push(
+                                MaterialPageRoute(
+                                  builder: (_) => const ForgotPasswordScreen(),
+                                ),
+                              );
+                            },
                             child: Text(
                               'Şifreni mi unuttun?',
                               style: GoogleFonts.manrope(
@@ -299,6 +380,56 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                   ),
                 ),
+
+                // --- BİYOMETRİK GİRİŞ BUTONU ---
+                if (_biometricAvailable)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 16.0),
+                    child: Center(
+                      child: Column(
+                        children: [
+                          Text(
+                            'Veya',
+                            style: GoogleFonts.manrope(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w500,
+                              color: isDarkMode
+                                  ? AppColors.slate400
+                                  : AppColors.slate500,
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          Container(
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                color: AppColors.primary,
+                                width: 2,
+                              ),
+                            ),
+                            child: IconButton(
+                              icon: const Icon(
+                                Icons.fingerprint,
+                                size: 40,
+                                color: AppColors.primary,
+                              ),
+                              onPressed: _handleBiometricLogin,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            'Biyometrik ile Giriş',
+                            style: GoogleFonts.manrope(
+                              fontSize: 12,
+                              color: isDarkMode
+                                  ? AppColors.slate400
+                                  : AppColors.slate500,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
 
                 // --- VEYA AYIRACI ---
                 Padding(

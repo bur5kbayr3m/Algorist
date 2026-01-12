@@ -4,6 +4,7 @@ import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:bcrypt/bcrypt.dart';
+import '../utils/app_logger.dart';
 
 /// SQLite Database Service - Kalıcı veri saklama
 /// Kullanıcı bilgileri ve portföy verileri bu veritabanında saklanır
@@ -14,9 +15,22 @@ class DatabaseService {
 
   static Database? _database;
 
+  // Cache için
+  final Map<String, Map<String, dynamic>?> _userCache = {};
+  final Map<String, List<Map<String, dynamic>>> _assetsCache = {};
+  Timer? _cacheTimer;
+
   Future<Database> get database async {
     if (_database != null) return _database!;
     _database = await _initDatabase();
+
+    // Cache temizleme timer'ı (5 dakikada bir)
+    _cacheTimer ??= Timer.periodic(const Duration(minutes: 5), (_) {
+      _userCache.clear();
+      _assetsCache.clear();
+      AppLogger.log('🧹 Cache cleared');
+    });
+
     return _database!;
   }
 
@@ -24,7 +38,7 @@ class DatabaseService {
     final documentsDirectory = await getApplicationDocumentsDirectory();
     final path = join(documentsDirectory.path, 'algorist.db');
 
-    debugPrint('📁 Database path: $path');
+    AppLogger.log('📁 Database path: $path');
 
     return await openDatabase(
       path,
@@ -35,7 +49,7 @@ class DatabaseService {
   }
 
   Future<void> _onCreate(Database db, int version) async {
-    debugPrint('🗄️ Creating database tables...');
+    AppLogger.log('🗄️ Creating database tables...');
 
     // Kullanıcılar tablosu
     await db.execute('''
@@ -91,15 +105,15 @@ class DatabaseService {
       'CREATE INDEX idx_preferences_email ON user_preferences(userEmail)',
     );
 
-    debugPrint('✅ Database tables created successfully');
+    AppLogger.log('✅ Database tables created successfully');
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
-    debugPrint('🔄 Upgrading database from v$oldVersion to v$newVersion');
+    AppLogger.log('🔄 Upgrading database from v$oldVersion to v$newVersion');
 
     if (oldVersion < 2) {
       // Version 2: user_preferences tablosu ekle
-      debugPrint('➕ Adding user_preferences table...');
+      AppLogger.log('➕ Adding user_preferences table...');
       await db.execute('''
         CREATE TABLE user_preferences (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -112,38 +126,40 @@ class DatabaseService {
       await db.execute(
         'CREATE INDEX idx_preferences_email ON user_preferences(userEmail)',
       );
-      debugPrint('✅ user_preferences table added');
+      AppLogger.log('✅ user_preferences table added');
     }
 
     if (oldVersion < 3) {
       // Version 3: users tablosuna phone ve profileImage kolonları ekle
-      debugPrint('➕ Adding phone and profileImage columns to users table...');
+      AppLogger.log(
+        '➕ Adding phone and profileImage columns to users table...',
+      );
       try {
         await db.execute('ALTER TABLE users ADD COLUMN phone TEXT');
         await db.execute('ALTER TABLE users ADD COLUMN profileImage TEXT');
-        debugPrint('✅ phone and profileImage columns added');
+        AppLogger.log('✅ phone and profileImage columns added');
       } catch (e) {
-        debugPrint('⚠️ Columns might already exist: $e');
+        AppLogger.log('⚠️ Columns might already exist: $e');
       }
     }
 
     if (oldVersion < 4) {
       // Version 4: Email verification columns
-      debugPrint('➕ Adding email verification columns to users table...');
+      AppLogger.log('➕ Adding email verification columns to users table...');
       try {
         await db.execute(
           'ALTER TABLE users ADD COLUMN emailVerified INTEGER DEFAULT 0',
         );
         await db.execute('ALTER TABLE users ADD COLUMN verificationCode TEXT');
-        debugPrint('✅ Email verification columns added');
+        AppLogger.log('✅ Email verification columns added');
       } catch (e) {
-        debugPrint('⚠️ Columns might already exist: $e');
+        AppLogger.log('⚠️ Columns might already exist: $e');
       }
     }
 
     if (oldVersion < 5) {
       // Version 5: Add UNIQUE constraint to fullName and phone
-      debugPrint('➕ Adding UNIQUE constraints to fullName and phone...');
+      AppLogger.log('➕ Adding UNIQUE constraints to fullName and phone...');
       try {
         // SQLite doesn't support ALTER TABLE ADD CONSTRAINT
         // We need to recreate the table with the constraints
@@ -187,9 +203,9 @@ class DatabaseService {
         // 5. Recreate indexes
         await db.execute('CREATE INDEX idx_user_email ON users(email)');
 
-        debugPrint('✅ UNIQUE constraints added to fullName and phone');
+        AppLogger.log('✅ UNIQUE constraints added to fullName and phone');
       } catch (e) {
-        debugPrint('⚠️ Error adding UNIQUE constraints: $e');
+        AppLogger.log('⚠️ Error adding UNIQUE constraints: $e');
       }
     }
   } // ==================== USER OPERATIONS ====================
@@ -198,25 +214,31 @@ class DatabaseService {
   Future<int> insertUser(Map<String, dynamic> user) async {
     try {
       final db = await database;
-      debugPrint('👤 Inserting user: ${user['email']}');
+      AppLogger.log('👤 Inserting user: ${user['email']}');
       final id = await db.insert(
         'users',
         user,
         conflictAlgorithm: ConflictAlgorithm.replace,
       );
-      debugPrint('✅ User inserted with ID: $id');
+      AppLogger.log('✅ User inserted with ID: $id');
       return id;
     } catch (e) {
-      debugPrint('❌ Error inserting user: $e');
+      AppLogger.log('❌ Error inserting user: $e');
       rethrow;
     }
   }
 
-  /// Email ile kullanıcı bul
+  /// Email ile kullanıcı bul (Cache'li)
   Future<Map<String, dynamic>?> getUserByEmail(String email) async {
     try {
+      // Cache'de var mı kontrol et
+      if (_userCache.containsKey(email)) {
+        AppLogger.log('💾 User found in cache: $email');
+        return _userCache[email];
+      }
+
       final db = await database;
-      debugPrint('🔍 Searching user: $email');
+      AppLogger.log('🔍 Searching user in DB: $email');
       final results = await db.query(
         'users',
         where: 'email = ?',
@@ -225,14 +247,16 @@ class DatabaseService {
       );
 
       if (results.isEmpty) {
-        debugPrint('❌ User not found: $email');
+        _userCache[email] = null;
         return null;
       }
 
-      debugPrint('✅ User found: $email');
+      // Cache'e ekle
+      _userCache[email] = results.first;
+      AppLogger.log('✅ User found and cached: $email');
       return results.first;
     } catch (e) {
-      debugPrint('❌ Error getting user: $e');
+      AppLogger.log('❌ Error getting user: $e');
       return null;
     }
   }
@@ -241,7 +265,7 @@ class DatabaseService {
   Future<Map<String, dynamic>?> getUserByFullName(String fullName) async {
     try {
       final db = await database;
-      debugPrint('🔍 Searching user by name: $fullName');
+      AppLogger.log('🔍 Searching user by name: $fullName');
       final results = await db.query(
         'users',
         where: 'fullName = ?',
@@ -250,14 +274,14 @@ class DatabaseService {
       );
 
       if (results.isEmpty) {
-        debugPrint('❌ User not found by name: $fullName');
+        AppLogger.log('❌ User not found by name: $fullName');
         return null;
       }
 
-      debugPrint('✅ User found by name: $fullName');
+      AppLogger.log('✅ User found by name: $fullName');
       return results.first;
     } catch (e) {
-      debugPrint('❌ Error getting user by name: $e');
+      AppLogger.log('❌ Error getting user by name: $e');
       return null;
     }
   }
@@ -266,7 +290,7 @@ class DatabaseService {
   Future<Map<String, dynamic>?> getUserByPhone(String phone) async {
     try {
       final db = await database;
-      debugPrint('🔍 Searching user by phone: $phone');
+      AppLogger.log('🔍 Searching user by phone: $phone');
       final results = await db.query(
         'users',
         where: 'phone = ?',
@@ -275,14 +299,14 @@ class DatabaseService {
       );
 
       if (results.isEmpty) {
-        debugPrint('❌ User not found by phone: $phone');
+        AppLogger.log('❌ User not found by phone: $phone');
         return null;
       }
 
-      debugPrint('✅ User found by phone: $phone');
+      AppLogger.log('✅ User found by phone: $phone');
       return results.first;
     } catch (e) {
-      debugPrint('❌ Error getting user by phone: $e');
+      AppLogger.log('❌ Error getting user by phone: $e');
       return null;
     }
   }
@@ -297,11 +321,11 @@ class DatabaseService {
   Future<void> deleteUser(String email) async {
     try {
       final db = await database;
-      debugPrint('🗑️ Deleting user: $email');
+      AppLogger.log('🗑️ Deleting user: $email');
       await db.delete('users', where: 'email = ?', whereArgs: [email]);
-      debugPrint('✅ User deleted');
+      AppLogger.log('✅ User deleted');
     } catch (e) {
-      debugPrint('❌ Error deleting user: $e');
+      AppLogger.log('❌ Error deleting user: $e');
       rethrow;
     }
   }
@@ -315,7 +339,7 @@ class DatabaseService {
   }) async {
     try {
       final db = await database;
-      debugPrint('✏️ Updating profile for: $email');
+      AppLogger.log('✏️ Updating profile for: $email');
 
       final updates = <String, dynamic>{};
       if (fullName != null) updates['fullName'] = fullName;
@@ -323,14 +347,14 @@ class DatabaseService {
       if (profileImage != null) updates['profileImage'] = profileImage;
 
       if (updates.isEmpty) {
-        debugPrint('⚠️ No updates provided');
+        AppLogger.log('⚠️ No updates provided');
         return;
       }
 
       await db.update('users', updates, where: 'email = ?', whereArgs: [email]);
-      debugPrint('✅ Profile updated successfully');
+      AppLogger.log('✅ Profile updated successfully');
     } catch (e) {
-      debugPrint('❌ Error updating profile: $e');
+      AppLogger.log('❌ Error updating profile: $e');
       rethrow;
     }
   }
@@ -339,7 +363,7 @@ class DatabaseService {
   Future<void> updateUserPassword(String email, String newPassword) async {
     try {
       final db = await database;
-      debugPrint('🔐 Updating password for: $email');
+      AppLogger.log('🔐 Updating password for: $email');
 
       // Bcrypt ile şifreyi hashle
       final hashedPassword = BCrypt.hashpw(newPassword, BCrypt.gensalt());
@@ -350,9 +374,9 @@ class DatabaseService {
         where: 'email = ?',
         whereArgs: [email],
       );
-      debugPrint('✅ Password updated successfully with bcrypt');
+      AppLogger.log('✅ Password updated successfully with bcrypt');
     } catch (e) {
-      debugPrint('❌ Error updating password: $e');
+      AppLogger.log('❌ Error updating password: $e');
       rethrow;
     }
   }
@@ -362,7 +386,7 @@ class DatabaseService {
     try {
       return BCrypt.checkpw(password, hashedPassword);
     } catch (e) {
-      debugPrint('❌ Error verifying password: $e');
+      AppLogger.log('❌ Error verifying password: $e');
       return false;
     }
   }
@@ -378,7 +402,7 @@ class DatabaseService {
   Future<int> insertAsset(Map<String, dynamic> asset) async {
     try {
       final db = await database;
-      debugPrint(
+      AppLogger.log(
         '💰 Inserting asset: ${asset['name']} for ${asset['userEmail']}',
       );
       final id = await db.insert(
@@ -386,29 +410,43 @@ class DatabaseService {
         asset,
         conflictAlgorithm: ConflictAlgorithm.replace,
       );
-      debugPrint('✅ Asset inserted with ID: $id');
+
+      // Cache'i invalidate et
+      final userEmail = asset['userEmail'] as String;
+      _assetsCache.remove(userEmail);
+
+      AppLogger.log('✅ Asset inserted with ID: $id');
       return id;
     } catch (e) {
-      debugPrint('❌ Error inserting asset: $e');
+      AppLogger.log('❌ Error inserting asset: $e');
       rethrow;
     }
   }
 
-  /// Kullanıcının tüm varlıklarını getir
+  /// Kullanıcının tüm varlıklarını getir (Cache'li)
   Future<List<Map<String, dynamic>>> getUserAssets(String userEmail) async {
     try {
+      // Cache'de var mı kontrol et
+      if (_assetsCache.containsKey(userEmail)) {
+        AppLogger.log('💾 Assets found in cache: $userEmail');
+        return _assetsCache[userEmail]!;
+      }
+
       final db = await database;
-      debugPrint('📊 Getting assets for: $userEmail');
+      AppLogger.log('📊 Getting assets from DB: $userEmail');
       final results = await db.query(
         'assets',
         where: 'userEmail = ?',
         whereArgs: [userEmail],
         orderBy: 'addedAt DESC',
       );
-      debugPrint('✅ Found ${results.length} assets');
+
+      // Cache'e ekle
+      _assetsCache[userEmail] = results;
+      AppLogger.log('✅ Found and cached ${results.length} assets');
       return results;
     } catch (e) {
-      debugPrint('❌ Error getting assets: $e');
+      AppLogger.log('❌ Error getting assets: $e');
       return [];
     }
   }
@@ -417,16 +455,16 @@ class DatabaseService {
   Future<void> updateAsset(String assetId, Map<String, dynamic> asset) async {
     try {
       final db = await database;
-      debugPrint('📝 Updating asset: $assetId');
+      AppLogger.log('📝 Updating asset: $assetId');
       await db.update(
         'assets',
         asset,
         where: 'assetId = ?',
         whereArgs: [assetId],
       );
-      debugPrint('✅ Asset updated');
+      AppLogger.log('✅ Asset updated');
     } catch (e) {
-      debugPrint('❌ Error updating asset: $e');
+      AppLogger.log('❌ Error updating asset: $e');
       rethrow;
     }
   }
@@ -435,11 +473,11 @@ class DatabaseService {
   Future<void> deleteAsset(String assetId) async {
     try {
       final db = await database;
-      debugPrint('🗑️ Deleting asset: $assetId');
+      AppLogger.log('🗑️ Deleting asset: $assetId');
       await db.delete('assets', where: 'assetId = ?', whereArgs: [assetId]);
-      debugPrint('✅ Asset deleted');
+      AppLogger.log('✅ Asset deleted');
     } catch (e) {
-      debugPrint('❌ Error deleting asset: $e');
+      AppLogger.log('❌ Error deleting asset: $e');
       rethrow;
     }
   }
@@ -448,11 +486,11 @@ class DatabaseService {
   Future<void> deleteUserAssets(String userEmail) async {
     try {
       final db = await database;
-      debugPrint('🗑️ Deleting all assets for: $userEmail');
+      AppLogger.log('🗑️ Deleting all assets for: $userEmail');
       await db.delete('assets', where: 'userEmail = ?', whereArgs: [userEmail]);
-      debugPrint('✅ All assets deleted');
+      AppLogger.log('✅ All assets deleted');
     } catch (e) {
-      debugPrint('❌ Error deleting assets: $e');
+      AppLogger.log('❌ Error deleting assets: $e');
       rethrow;
     }
   }
@@ -483,7 +521,7 @@ class DatabaseService {
           'enabledWidgets': widgetsJson,
           'updatedAt': now,
         });
-        debugPrint('✅ Widget preferences created for: $userEmail');
+        AppLogger.log('✅ Widget preferences created for: $userEmail');
       } else {
         // Mevcut tercihi güncelle
         await db.update(
@@ -492,10 +530,10 @@ class DatabaseService {
           where: 'userEmail = ?',
           whereArgs: [userEmail],
         );
-        debugPrint('✅ Widget preferences updated for: $userEmail');
+        AppLogger.log('✅ Widget preferences updated for: $userEmail');
       }
     } catch (e) {
-      debugPrint('❌ Error saving widget preferences: $e');
+      AppLogger.log('❌ Error saving widget preferences: $e');
       rethrow;
     }
   }
@@ -511,7 +549,7 @@ class DatabaseService {
       );
 
       if (result.isEmpty) {
-        debugPrint('ℹ️ No widget preferences found for: $userEmail');
+        AppLogger.log('ℹ️ No widget preferences found for: $userEmail');
         return [];
       }
 
@@ -523,7 +561,7 @@ class DatabaseService {
       );
       return widgets;
     } catch (e) {
-      debugPrint('❌ Error loading widget preferences: $e');
+      AppLogger.log('❌ Error loading widget preferences: $e');
       return [];
     }
   }
@@ -543,7 +581,7 @@ class DatabaseService {
 
       return {'users': userCount ?? 0, 'assets': assetCount ?? 0};
     } catch (e) {
-      debugPrint('❌ Error getting stats: $e');
+      AppLogger.log('❌ Error getting stats: $e');
       return {'users': 0, 'assets': 0};
     }
   }
@@ -553,51 +591,53 @@ class DatabaseService {
     try {
       final db = await database;
 
-      debugPrint('\n${'=' * 60}');
-      debugPrint('📊 VERITABANI DUMP - TÜM VERİLER');
-      debugPrint('=' * 60);
+      AppLogger.log('\n${'=' * 60}');
+      AppLogger.log('📊 VERITABANI DUMP - TÜM VERİLER');
+      AppLogger.log('=' * 60);
 
       // Kullanıcıları listele
       final users = await db.query('users');
-      debugPrint('\n👥 KULLANICILAR (${users.length} kayıt):');
-      debugPrint('-' * 60);
+      AppLogger.log('\n👥 KULLANICILAR (${users.length} kayıt):');
+      AppLogger.log('-' * 60);
       for (var user in users) {
-        debugPrint('ID: ${user['id']}');
-        debugPrint('  Email: ${user['email']}');
-        debugPrint('  İsim: ${user['fullName']}');
-        debugPrint('  Provider: ${user['provider']}');
-        debugPrint('  Oluşturma: ${user['createdAt']}');
+        AppLogger.log('ID: ${user['id']}');
+        AppLogger.log('  Email: ${user['email']}');
+        AppLogger.log('  İsim: ${user['fullName']}');
+        AppLogger.log('  Provider: ${user['provider']}');
+        AppLogger.log('  Oluşturma: ${user['createdAt']}');
         debugPrint(
           '  Hash: ${(user['hashedPassword'] as String).substring(0, 20)}...',
         );
-        debugPrint('  Salt: ${(user['salt'] as String).substring(0, 10)}...');
-        debugPrint('-' * 60);
+        AppLogger.log(
+          '  Salt: ${(user['salt'] as String).substring(0, 10)}...',
+        );
+        AppLogger.log('-' * 60);
       }
 
       // Asset'leri listele
       final assets = await db.query('assets');
-      debugPrint('\n💰 VARLIKLAR (${assets.length} kayıt):');
-      debugPrint('-' * 60);
+      AppLogger.log('\n💰 VARLIKLAR (${assets.length} kayıt):');
+      AppLogger.log('-' * 60);
       for (var asset in assets) {
-        debugPrint('ID: ${asset['id']}');
-        debugPrint('  Asset ID: ${asset['assetId']}');
-        debugPrint('  Kullanıcı: ${asset['userEmail']}');
-        debugPrint('  Tip: ${asset['type']}');
-        debugPrint('  İsim: ${asset['name']}');
-        debugPrint('  Miktar: ${asset['quantity']}');
-        debugPrint('  Alış Fiyatı: ₺${asset['purchasePrice']}');
-        debugPrint('  Toplam Maliyet: ₺${asset['totalCost']}');
-        debugPrint('  Alış Tarihi: ${asset['purchaseDate']}');
-        debugPrint('  Eklenme: ${asset['addedAt']}');
-        debugPrint('-' * 60);
+        AppLogger.log('ID: ${asset['id']}');
+        AppLogger.log('  Asset ID: ${asset['assetId']}');
+        AppLogger.log('  Kullanıcı: ${asset['userEmail']}');
+        AppLogger.log('  Tip: ${asset['type']}');
+        AppLogger.log('  İsim: ${asset['name']}');
+        AppLogger.log('  Miktar: ${asset['quantity']}');
+        AppLogger.log('  Alış Fiyatı: ₺${asset['purchasePrice']}');
+        AppLogger.log('  Toplam Maliyet: ₺${asset['totalCost']}');
+        AppLogger.log('  Alış Tarihi: ${asset['purchaseDate']}');
+        AppLogger.log('  Eklenme: ${asset['addedAt']}');
+        AppLogger.log('-' * 60);
       }
 
-      debugPrint('\n📈 İSTATİSTİKLER:');
-      debugPrint('  Toplam Kullanıcı: ${users.length}');
-      debugPrint('  Toplam Varlık: ${assets.length}');
-      debugPrint('=' * 60 + '\n');
+      AppLogger.log('\n📈 İSTATİSTİKLER:');
+      AppLogger.log('  Toplam Kullanıcı: ${users.length}');
+      AppLogger.log('  Toplam Varlık: ${assets.length}');
+      AppLogger.log('=' * 60 + '\n');
     } catch (e) {
-      debugPrint('❌ Error printing data: $e');
+      AppLogger.log('❌ Error printing data: $e');
     }
   }
 
@@ -606,9 +646,9 @@ class DatabaseService {
     try {
       final db = await database;
 
-      debugPrint('\n${'=' * 60}');
-      debugPrint('📊 KULLANICI VERİLERİ: $email');
-      debugPrint('=' * 60);
+      AppLogger.log('\n${'=' * 60}');
+      AppLogger.log('📊 KULLANICI VERİLERİ: $email');
+      AppLogger.log('=' * 60);
 
       // Kullanıcı bilgisi
       final users = await db.query(
@@ -617,17 +657,17 @@ class DatabaseService {
         whereArgs: [email],
       );
       if (users.isEmpty) {
-        debugPrint('❌ Kullanıcı bulunamadı!');
+        AppLogger.log('❌ Kullanıcı bulunamadı!');
         return;
       }
 
       final user = users.first;
-      debugPrint('\n👤 KULLANICI BİLGİSİ:');
-      debugPrint('  ID: ${user['id']}');
-      debugPrint('  Email: ${user['email']}');
-      debugPrint('  İsim: ${user['fullName']}');
-      debugPrint('  Provider: ${user['provider']}');
-      debugPrint('  Oluşturma: ${user['createdAt']}');
+      AppLogger.log('\n👤 KULLANICI BİLGİSİ:');
+      AppLogger.log('  ID: ${user['id']}');
+      AppLogger.log('  Email: ${user['email']}');
+      AppLogger.log('  İsim: ${user['fullName']}');
+      AppLogger.log('  Provider: ${user['provider']}');
+      AppLogger.log('  Oluşturma: ${user['createdAt']}');
 
       // Kullanıcının varlıkları
       final assets = await db.query(
@@ -635,20 +675,20 @@ class DatabaseService {
         where: 'userEmail = ?',
         whereArgs: [email],
       );
-      debugPrint('\n💰 VARLIKLAR (${assets.length} adet):');
-      debugPrint('-' * 60);
+      AppLogger.log('\n💰 VARLIKLAR (${assets.length} adet):');
+      AppLogger.log('-' * 60);
 
       if (assets.isEmpty) {
-        debugPrint('  Henüz varlık eklenmemiş.');
+        AppLogger.log('  Henüz varlık eklenmemiş.');
       } else {
         double totalValue = 0;
         for (var asset in assets) {
-          debugPrint('${asset['name']} (${asset['type']})');
-          debugPrint('  Miktar: ${asset['quantity']}');
-          debugPrint('  Alış: ₺${asset['purchasePrice']}');
-          debugPrint('  Toplam: ₺${asset['totalCost']}');
-          debugPrint('  Tarih: ${asset['purchaseDate']}');
-          debugPrint('-' * 60);
+          AppLogger.log('${asset['name']} (${asset['type']})');
+          AppLogger.log('  Miktar: ${asset['quantity']}');
+          AppLogger.log('  Alış: ₺${asset['purchasePrice']}');
+          AppLogger.log('  Toplam: ₺${asset['totalCost']}');
+          AppLogger.log('  Tarih: ${asset['purchaseDate']}');
+          AppLogger.log('-' * 60);
           totalValue += (asset['totalCost'] as num?)?.toDouble() ?? 0.0;
         }
         debugPrint(
@@ -656,9 +696,9 @@ class DatabaseService {
         );
       }
 
-      debugPrint('=' * 60 + '\n');
+      AppLogger.log('=' * 60 + '\n');
     } catch (e) {
-      debugPrint('❌ Error printing user data: $e');
+      AppLogger.log('❌ Error printing user data: $e');
     }
   }
 
@@ -667,7 +707,7 @@ class DatabaseService {
     final db = await database;
     await db.close();
     _database = null;
-    debugPrint('🔒 Database closed');
+    AppLogger.log('🔒 Database closed');
   }
 
   /// Veritabanını sıfırla (sadece development için!)
@@ -680,9 +720,9 @@ class DatabaseService {
       await deleteDatabase(path);
 
       _database = null;
-      debugPrint('🔄 Database reset completed');
+      AppLogger.log('🔄 Database reset completed');
     } catch (e) {
-      debugPrint('❌ Error resetting database: $e');
+      AppLogger.log('❌ Error resetting database: $e');
     }
   }
 
@@ -735,7 +775,7 @@ class DatabaseService {
 
       return preferences;
     } catch (e) {
-      debugPrint('❌ Error getting user preferences: $e');
+      AppLogger.log('❌ Error getting user preferences: $e');
       return null;
     }
   }
@@ -816,9 +856,201 @@ class DatabaseService {
         });
       }
 
-      debugPrint('✅ Preference saved: $key = $value');
+      AppLogger.log('✅ Preference saved: $key = $value');
     } catch (e) {
-      debugPrint('❌ Error saving user preference: $e');
+      AppLogger.log('❌ Error saving user preference: $e');
+    }
+  }
+
+  /// Şifre sıfırlama kodu oluşturur ve kaydeder
+  Future<String?> generatePasswordResetCode(String email) async {
+    try {
+      final db = await database;
+
+      // Kullanıcı var mı kontrol et
+      final result = await db.query(
+        'users',
+        where: 'email = ?',
+        whereArgs: [email],
+      );
+
+      if (result.isEmpty) {
+        AppLogger.log('❌ User not found: $email');
+        return null;
+      }
+
+      // 6 haneli kod oluştur
+      final code = (100000 + DateTime.now().millisecondsSinceEpoch % 900000)
+          .toString();
+
+      // Kodu veritabanına kaydet (son kullanma süresini de ekle - 30 dakika geçerlilik)
+      // Ayırıcı olarak '|||' kullan (ISO8601 tarihinde ':' var)
+      final codeWithExpiry =
+          '$code|||${DateTime.now().add(const Duration(minutes: 30)).toIso8601String()}';
+
+      await db.update(
+        'users',
+        {'verificationCode': codeWithExpiry},
+        where: 'email = ?',
+        whereArgs: [email],
+      );
+
+      AppLogger.log('✅ Password reset code generated for $email: $code');
+      return code;
+    } catch (e) {
+      AppLogger.log('❌ Error generating reset code: $e');
+      return null;
+    }
+  }
+
+  /// Şifre sıfırlama kodunu doğrular
+  Future<bool> verifyPasswordResetCode(String email, String code) async {
+    try {
+      final db = await database;
+
+      final result = await db.query(
+        'users',
+        where: 'email = ?',
+        whereArgs: [email],
+      );
+
+      if (result.isEmpty) {
+        AppLogger.log('❌ User not found: $email');
+        return false;
+      }
+
+      final user = result.first;
+      final storedCodeData = user['verificationCode'] as String?;
+
+      AppLogger.log('🔍 Checking code for $email');
+      AppLogger.log('   Stored data: $storedCodeData');
+      AppLogger.log('   Input code: $code');
+
+      if (storedCodeData == null || storedCodeData.isEmpty) {
+        AppLogger.log('❌ No verification code found');
+        return false;
+      }
+
+      // Kodu ve son kullanma süresini ayır (ayırıcı: |||)
+      final parts = storedCodeData.split('|||');
+      if (parts.length != 2) {
+        AppLogger.log('❌ Invalid code format - parts: ${parts.length}');
+        return false;
+      }
+
+      final storedCode = parts[0];
+      final expiryTime = DateTime.parse(parts[1]);
+
+      AppLogger.log('   Stored code: $storedCode');
+      AppLogger.log('   Expiry time: $expiryTime');
+      AppLogger.log('   Current time: ${DateTime.now()}');
+
+      // Süre dolmuş mu kontrol et
+      if (DateTime.now().isAfter(expiryTime)) {
+        AppLogger.log('❌ Verification code expired');
+        return false;
+      }
+
+      // Kodu doğrula (trim ile boşlukları temizle)
+      if (storedCode.trim() != code.trim()) {
+        AppLogger.log('❌ Invalid verification code');
+        AppLogger.log('   Expected: "${storedCode.trim()}"');
+        AppLogger.log('   Received: "${code.trim()}"');
+        return false;
+      }
+
+      AppLogger.log('✅ Password reset code verified for $email');
+      return true;
+    } catch (e) {
+      AppLogger.log('❌ Error verifying reset code: $e');
+      return false;
+    }
+  }
+
+  /// Şifre sıfırlama kodunu temizler
+  Future<void> clearPasswordResetCode(String email) async {
+    try {
+      final db = await database;
+      await db.update(
+        'users',
+        {'verificationCode': null},
+        where: 'email = ?',
+        whereArgs: [email],
+      );
+      AppLogger.log('✅ Reset code cleared for $email');
+    } catch (e) {
+      AppLogger.log('❌ Error clearing reset code: $e');
+    }
+  }
+
+  /// DEBUG: Tüm kullanıcıları listele (şifreler hash'li olarak)
+  Future<void> debugListAllUsers() async {
+    try {
+      final db = await database;
+      final users = await db.query('users', orderBy: 'id ASC');
+
+      AppLogger.log(
+        '\n═══════════════════════════════════════════════════════',
+      );
+      AppLogger.log(
+        '📋 KAYITLI KULLANICILAR LİSTESİ (${users.length} kullanıcı)',
+      );
+      AppLogger.log(
+        '═══════════════════════════════════════════════════════\n',
+      );
+
+      for (var user in users) {
+        AppLogger.log('👤 ID: ${user['id']}');
+        AppLogger.log('   Email: ${user['email']}');
+        AppLogger.log('   Ad Soyad: ${user['fullName'] ?? 'Belirtilmemiş'}');
+        AppLogger.log('   Telefon: ${user['phone'] ?? 'Belirtilmemiş'}');
+        debugPrint(
+          '   Email Doğrulandı: ${user['emailVerified'] == 1 ? 'Evet ✓' : 'Hayır ✗'}',
+        );
+        AppLogger.log('   Şifre Hash: ${user['hashedPassword']}');
+        AppLogger.log('   Salt: ${user['salt']}');
+        AppLogger.log('   Provider: ${user['provider']}');
+        AppLogger.log('   Kayıt Tarihi: ${user['createdAt']}');
+        debugPrint(
+          '   ─────────────────────────────────────────────────────\n',
+        );
+      }
+
+      AppLogger.log(
+        '═══════════════════════════════════════════════════════\n',
+      );
+    } catch (e) {
+      AppLogger.log('❌ Kullanıcıları listelerken hata: $e');
+    }
+  }
+
+  /// DEBUG: Belirli bir kullanıcının şifresini test et
+  Future<bool> debugTestPassword(String email, String testPassword) async {
+    try {
+      final db = await database;
+      final result = await db.query(
+        'users',
+        where: 'email = ?',
+        whereArgs: [email],
+      );
+
+      if (result.isEmpty) {
+        AppLogger.log('❌ Kullanıcı bulunamadı: $email');
+        return false;
+      }
+
+      final user = result.first;
+      final hashedPassword = user['hashedPassword'] as String;
+      final isValid = BCrypt.checkpw(testPassword, hashedPassword);
+
+      AppLogger.log('🔐 Şifre testi: $email');
+      AppLogger.log('   Test şifre: $testPassword');
+      AppLogger.log('   Sonuç: ${isValid ? 'DOĞRU ✓' : 'YANLIŞ ✗'}');
+
+      return isValid;
+    } catch (e) {
+      AppLogger.log('❌ Şifre test hatası: $e');
+      return false;
     }
   }
 }

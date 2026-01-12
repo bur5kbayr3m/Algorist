@@ -502,7 +502,10 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
                 Expanded(
                   child: _buildInfoCard(
                     'Miktar',
-                    '${quantity?.toStringAsFixed(quantity.truncateToDouble() == quantity ? 0 : 2) ?? '0'}',
+                    quantity?.toStringAsFixed(
+                          quantity.truncateToDouble() == quantity ? 0 : 2,
+                        ) ??
+                        '0',
                     Icons.inventory_2_outlined,
                   ),
                 ),
@@ -788,7 +791,7 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
           else if (_kapNews.isEmpty)
             _buildEmptyState('KAP bildirimi bulunamadı')
           else
-            ..._kapNews.map((news) => _buildKapNewsCard(news)).toList(),
+            ..._kapNews.map((news) => _buildKapNewsCard(news)),
 
           const SizedBox(height: 32),
         ],
@@ -952,7 +955,7 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
           else if (_generalNews.isEmpty)
             _buildEmptyState('Haber bulunamadı')
           else
-            ..._generalNews.map((news) => _buildGeneralNewsCard(news)).toList(),
+            ..._generalNews.map((news) => _buildGeneralNewsCard(news)),
         ],
       ),
     );

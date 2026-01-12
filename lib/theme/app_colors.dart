@@ -19,6 +19,10 @@ class AppColors {
   static const onSurfaceDark = Color(0xFFFFFFFF);
   static const onSurfaceDarkSecondary = Color(0xFF9CA3AF);
 
+  // Light theme text colors
+  static const textPrimary = Color(0xFF1F2937); // gray-800
+  static const textSecondary = Color(0xFF6B7280); // gray-500
+
   // Status Colors
   static const positiveDark = Color(0xFF34C759);
   static const negativeDark = Color(0xFFFF3B30);

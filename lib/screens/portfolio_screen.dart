@@ -6,12 +6,20 @@ import '../providers/auth_provider.dart';
 import '../services/portfolio_service.dart';
 import '../services/database_service.dart';
 import '../theme/app_colors.dart';
+import '../utils/app_logger.dart';
 import 'add_asset_screen.dart';
 import 'analytics_screen.dart';
+import 'markets_screen.dart';
 import 'dashboard_screen.dart';
 import 'edit_portfolio_screen.dart';
 import 'asset_detail_screen.dart';
 import 'profile_screen.dart';
+import '../widgets/app_bottom_navigation.dart';
+import '../widgets/offline_mode_banner.dart';
+import '../widgets/loading_widgets.dart';
+import '../widgets/refreshable_scroll_view.dart';
+import '../widgets/global_search_bar.dart';
+import '../utils/error_handler.dart';
 import 'transaction_history_screen.dart';
 import 'notifications_screen.dart';
 import 'settings_screen.dart';
@@ -62,7 +70,7 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
         }
       }
     } catch (e) {
-      print('Error loading widget preferences: $e');
+      AppLogger.error('Error loading widget preferences', e);
     }
   }
 
@@ -386,83 +394,84 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      key: _scaffoldKey,
-      backgroundColor: AppColors.backgroundDark,
-      drawer: _buildDrawer(),
-      body: SafeArea(
-        child: _isLoading
-            ? const Center(
-                child: CircularProgressIndicator(color: AppColors.primary),
-              )
-            : RefreshIndicator(
-                onRefresh: _loadUserAssets,
-                color: AppColors.primary,
-                child: SingleChildScrollView(
-                  physics: const AlwaysScrollableScrollPhysics(),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 20,
-                    vertical: 16,
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      _buildAppBar(),
-                      const SizedBox(height: 24),
-                      _buildHeader(),
-                      const SizedBox(height: 24),
-                      _buildPortfolioSummary(),
-                      const SizedBox(height: 24),
-                      // Widget Selector (Edit modunda göster)
-                      if (_isEditMode) ...[
-                        _buildWidgetSelector(),
-                        const SizedBox(height: 24),
-                      ],
-                      // Dynamic Widgets
-                      ..._buildDynamicWidgets(),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+    return Stack(
+      children: [
+        Scaffold(
+          key: _scaffoldKey,
+          backgroundColor: AppColors.backgroundDark,
+          drawer: _buildDrawer(),
+          body: SafeArea(
+            child: _isLoading
+                ? const PortfolioSkeletonLoader()
+                : RefreshIndicator(
+                    onRefresh: _loadUserAssets,
+                    color: AppColors.primary,
+                    child: SingleChildScrollView(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 20,
+                        vertical: 16,
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
-                            'Varlıklarım',
-                            style: GoogleFonts.manrope(
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
-                              color: AppColors.textMainDark,
-                            ),
-                          ),
-                          if (_userAssets.isNotEmpty)
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 10,
-                                vertical: 4,
-                              ),
-                              decoration: BoxDecoration(
-                                color: AppColors.cardDark,
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              child: Text(
-                                '${_userAssets.length} varlık',
+                          _buildAppBar(),
+                          const SizedBox(height: 24),
+                          _buildHeader(),
+                          const SizedBox(height: 24),
+                          _buildPortfolioSummary(),
+                          const SizedBox(height: 24),
+                          if (_isEditMode) ...[
+                            _buildWidgetSelector(),
+                            const SizedBox(height: 24),
+                          ],
+                          ..._buildDynamicWidgets(),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(
+                                'Varlıklarım',
                                 style: GoogleFonts.manrope(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w600,
-                                  color: AppColors.textSecondaryDark,
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.bold,
+                                  color: AppColors.textMainDark,
                                 ),
                               ),
-                            ),
+                              if (_userAssets.isNotEmpty)
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                    vertical: 4,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: AppColors.cardDark,
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  child: Text(
+                                    '${_userAssets.length} varlık',
+                                    style: GoogleFonts.manrope(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w600,
+                                      color: AppColors.textSecondaryDark,
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
+                          const SizedBox(height: 14),
+                          _buildAssetList(),
+                          const SizedBox(height: 100),
                         ],
                       ),
-                      const SizedBox(height: 14),
-                      _buildAssetList(),
-                      const SizedBox(height: 100),
-                    ],
+                    ),
                   ),
-                ),
-              ),
-      ),
-      bottomNavigationBar: _buildBottomNavigationBar(),
-      floatingActionButton: _buildFAB(),
-      floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
+          ),
+          bottomNavigationBar: const AppBottomNavigation(currentIndex: 0),
+          floatingActionButton: _buildFAB(),
+          floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
+        ),
+        const OfflineModeBanner(),
+      ],
     );
   }
 
@@ -1106,7 +1115,21 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
                     );
                   }),
                   _buildDrawerItem(Icons.analytics, 'Analizler', () {
-                    _navigateFromDrawer(context, const AnalyticsScreen());
+                    _navigateFromDrawer(context, AnalyticsScreen());
+                  }),
+                  _buildDrawerItem(Icons.trending_up, 'Piyasalar', () {
+                    final authProvider = Provider.of<AuthProvider>(
+                      context,
+                      listen: false,
+                    );
+                    if (authProvider.currentUserEmail != null) {
+                      _navigateFromDrawer(
+                        context,
+                        MarketsScreen(
+                          userEmail: authProvider.currentUserEmail!,
+                        ),
+                      );
+                    }
                   }),
                   _buildDrawerItem(Icons.notifications, 'Bildirimler', () {
                     _navigateFromDrawer(context, const NotificationsScreen());
@@ -1148,11 +1171,90 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
                     isDestructive: false,
                   ),
                   _buildDrawerItem(Icons.logout, 'Çıkış Yap', () async {
-                    final authProvider = Provider.of<AuthProvider>(
-                      context,
-                      listen: false,
+                    // Önce onay dialogu göster
+                    final shouldLogout = await showDialog<bool>(
+                      context: context,
+                      builder: (context) => AlertDialog(
+                        backgroundColor: AppColors.surfaceDark,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(20),
+                          side: BorderSide(color: Colors.red.withOpacity(0.3)),
+                        ),
+                        title: Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                color: Colors.red.withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: const Icon(
+                                Icons.logout_rounded,
+                                color: Colors.red,
+                                size: 24,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Text(
+                              'Çıkış Yap',
+                              style: GoogleFonts.manrope(
+                                color: Colors.white,
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ),
+                        content: Text(
+                          'Hesabınızdan çıkış yapmak istediğinizden emin misiniz?',
+                          style: GoogleFonts.manrope(
+                            color: AppColors.textSecondaryDark,
+                            fontSize: 14,
+                          ),
+                        ),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.pop(context, false),
+                            child: Text(
+                              'İptal',
+                              style: GoogleFonts.manrope(
+                                color: AppColors.textSecondaryDark,
+                              ),
+                            ),
+                          ),
+                          ElevatedButton(
+                            onPressed: () => Navigator.pop(context, true),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.red,
+                              foregroundColor: Colors.white,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                            ),
+                            child: Text(
+                              'Çıkış Yap',
+                              style: GoogleFonts.manrope(
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
                     );
-                    await authProvider.logout();
+
+                    // Kullanıcı onayladıysa çıkış yap
+                    if (shouldLogout == true && mounted) {
+                      final authProvider = Provider.of<AuthProvider>(
+                        context,
+                        listen: false,
+                      );
+                      await authProvider.logout();
+                      if (mounted) {
+                        Navigator.of(
+                          context,
+                        ).pushNamedAndRemoveUntil('/', (route) => false);
+                      }
+                    }
                   }, isDestructive: true),
                 ],
               ),
@@ -1846,99 +1948,6 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
           ),
         ),
       ],
-    );
-  }
-
-  Widget _buildBottomNavigationBar() {
-    return Container(
-      height: 56,
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [const Color(0xFF1E293B), const Color(0xFF0F172A)],
-        ),
-        border: Border(
-          top: BorderSide(color: AppColors.primary.withOpacity(0.2), width: 1),
-        ),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-        children: [
-          _buildNavItem(
-            Icons.account_balance_wallet_rounded,
-            'Portföy',
-            0,
-            true,
-          ),
-          _buildNavItem(Icons.trending_up_rounded, 'Piyasa', 1, false),
-          const SizedBox(width: 70), // FAB için boşluk
-          _buildNavItem(Icons.bar_chart_rounded, 'Analiz', 2, false),
-          _buildNavItem(Icons.person_rounded, 'Profil', 3, false),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildNavItem(IconData icon, String label, int index, bool isActive) {
-    return GestureDetector(
-      onTap: () {
-        switch (index) {
-          case 0:
-            break;
-          case 1:
-            _showCustomSnackBar(
-              'Piyasalar yakında eklenecek',
-              Icons.trending_up_rounded,
-            );
-            break;
-          case 2:
-            Navigator.push(
-              context,
-              MaterialPageRoute(builder: (context) => const AnalyticsScreen()),
-            );
-            break;
-          case 3:
-            Navigator.push(
-              context,
-              MaterialPageRoute(builder: (context) => const ProfileScreen()),
-            );
-            break;
-        }
-      },
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-        decoration: BoxDecoration(
-          color: isActive
-              ? AppColors.primary.withOpacity(0.15)
-              : Colors.transparent,
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              icon,
-              color: isActive
-                  ? AppColors.primary
-                  : Colors.white.withOpacity(0.6),
-              size: 22,
-            ),
-            const SizedBox(height: 2),
-            Text(
-              label,
-              style: GoogleFonts.manrope(
-                fontSize: 10,
-                fontWeight: isActive ? FontWeight.w700 : FontWeight.w500,
-                color: isActive
-                    ? AppColors.primary
-                    : Colors.white.withOpacity(0.6),
-              ),
-            ),
-          ],
-        ),
-      ),
     );
   }
 

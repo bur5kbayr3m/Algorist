@@ -1,5 +1,6 @@
 import 'dart:math';
 import 'package:flutter/foundation.dart';
+import '../utils/app_logger.dart';
 
 /// SMS Doğrulama Servisi
 /// NOT: Bu development versiyonu. Production için Firebase Auth, Twilio,
@@ -26,9 +27,9 @@ class SmsService {
 
       // Development: Console'a yazdır
       if (kDebugMode) {
-        print('📱 SMS Gönderildi: $phoneNumber');
-        print('🔐 OTP Kodu: $otp');
-        print('⏰ Geçerlilik: 5 dakika');
+        AppLogger.log('📱 SMS Gönderildi: $phoneNumber');
+        AppLogger.log('🔐 OTP Kodu: $otp');
+        AppLogger.log('⏰ Geçerlilik: 5 dakika');
       }
 
       // Production'da burası gerçek SMS API çağrısı olacak:
@@ -40,7 +41,7 @@ class SmsService {
       return true;
     } catch (e) {
       if (kDebugMode) {
-        print('❌ SMS gönderme hatası: $e');
+        AppLogger.log('❌ SMS gönderme hatası: $e');
       }
       return false;
     }
@@ -52,7 +53,7 @@ class SmsService {
 
     if (otpData == null) {
       if (kDebugMode) {
-        print('❌ Bu telefon numarası için OTP bulunamadı');
+        AppLogger.log('❌ Bu telefon numarası için OTP bulunamadı');
       }
       return false;
     }
@@ -61,7 +62,7 @@ class SmsService {
     if (DateTime.now().isAfter(otpData.expiryTime)) {
       _otpStorage.remove(phoneNumber);
       if (kDebugMode) {
-        print('⏰ OTP süresi dolmuş');
+        AppLogger.log('⏰ OTP süresi dolmuş');
       }
       return false;
     }
@@ -73,11 +74,11 @@ class SmsService {
       // Doğrulama başarılı, OTP'yi temizle
       _otpStorage.remove(phoneNumber);
       if (kDebugMode) {
-        print('✅ OTP doğrulandı');
+        AppLogger.log('✅ OTP doğrulandı');
       }
     } else {
       if (kDebugMode) {
-        print('❌ OTP yanlış');
+        AppLogger.log('❌ OTP yanlış');
       }
     }
 

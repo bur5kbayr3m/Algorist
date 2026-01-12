@@ -147,6 +147,40 @@ class AuthProvider with ChangeNotifier {
     }
   }
 
+  /// Email ile otomatik giriş yapar (biyometrik için)
+  Future<bool> loginWithEmail(String email) async {
+    _isLoading = true;
+    _errorMessage = null;
+    notifyListeners();
+
+    try {
+      // Kullanıcı var mı kontrol et
+      final userData = await _authService.getUserData(email);
+
+      if (userData == null) {
+        _errorMessage = 'Kullanıcı bulunamadı';
+        return false;
+      }
+
+      // Oturum aç
+      await _authService.setLoggedIn(email);
+
+      _isLoggedIn = true;
+      _currentUserEmail = email;
+      _currentUserName = userData['fullName'];
+      _currentUserPhone = userData['phone'];
+      _currentUserProfileImage = userData['profileImage'];
+
+      return true;
+    } catch (e) {
+      _errorMessage = 'Giriş başarısız: $e';
+      return false;
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
+  }
+
   /// Google ile giriş yapar
   Future<bool> signInWithGoogle() async {
     _isLoading = true;
@@ -196,5 +230,71 @@ class AuthProvider with ChangeNotifier {
   void clearError() {
     _errorMessage = null;
     notifyListeners();
+  }
+
+  /// Şifre sıfırlama kodu gönderir
+  Future<bool> sendPasswordResetCode(String email) async {
+    _isLoading = true;
+    _errorMessage = null;
+    notifyListeners();
+
+    try {
+      final success = await _authService.sendPasswordResetCode(email);
+      if (!success) {
+        _errorMessage = 'Bu e-posta adresi kayıtlı değil';
+      }
+      return success;
+    } catch (e) {
+      _errorMessage = 'Kod gönderilemedi: $e';
+      return false;
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
+  }
+
+  /// Şifre sıfırlama kodunu doğrular
+  Future<bool> verifyPasswordResetCode(String email, String code) async {
+    _isLoading = true;
+    _errorMessage = null;
+    notifyListeners();
+
+    try {
+      final success = await _authService.verifyPasswordResetCode(email, code);
+      if (!success) {
+        _errorMessage = 'Geçersiz veya süresi dolmuş kod';
+      }
+      return success;
+    } catch (e) {
+      _errorMessage = 'Kod doğrulanamadı: $e';
+      return false;
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
+  }
+
+  /// Yeni şifre belirler
+  Future<bool> resetPassword(String email, String newPassword) async {
+    _isLoading = true;
+    _errorMessage = null;
+    notifyListeners();
+
+    try {
+      final success = await _authService.resetPassword(
+        email: email,
+        newPassword: newPassword,
+      );
+      if (!success) {
+        _errorMessage = 'Şifre güncellenemedi';
+      }
+      return success;
+    } catch (e) {
+      _errorMessage = 'Şifre sıfırlanamadı: $e';
+      return false;
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
   }
 }

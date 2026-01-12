@@ -1,6 +1,7 @@
 import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'database_service.dart';
+import '../utils/app_logger.dart';
 
 /// Email Doğrulama Servisi
 /// NOT: Bu development versiyonu. Production için gerçek email servisi
@@ -38,9 +39,9 @@ class EmailVerificationService {
 
       // Development: Console'a yazdır
       if (kDebugMode) {
-        print('📧 Email Gönderildi: $email');
-        print('🔐 Doğrulama Kodu: $code');
-        print('⏰ Geçerlilik: 5 dakika');
+        AppLogger.log('📧 Email Gönderildi: $email');
+        AppLogger.log('🔐 Doğrulama Kodu: $code');
+        AppLogger.log('⏰ Geçerlilik: 5 dakika');
       }
 
       // Production'da burası gerçek email API çağrısı olacak:
@@ -52,7 +53,7 @@ class EmailVerificationService {
       return true;
     } catch (e) {
       if (kDebugMode) {
-        print('❌ Email gönderme hatası: $e');
+        AppLogger.log('❌ Email gönderme hatası: $e');
       }
       return false;
     }
@@ -65,7 +66,7 @@ class EmailVerificationService {
 
       if (verificationData == null) {
         if (kDebugMode) {
-          print('❌ Bu email için doğrulama kodu bulunamadı');
+          AppLogger.log('❌ Bu email için doğrulama kodu bulunamadı');
         }
         return false;
       }
@@ -74,7 +75,7 @@ class EmailVerificationService {
       if (DateTime.now().isAfter(verificationData.expiryTime)) {
         _verificationStorage.remove(email);
         if (kDebugMode) {
-          print('⏰ Doğrulama kodu süresi dolmuş');
+          AppLogger.log('⏰ Doğrulama kodu süresi dolmuş');
         }
         return false;
       }
@@ -90,18 +91,18 @@ class EmailVerificationService {
         _verificationStorage.remove(email);
 
         if (kDebugMode) {
-          print('✅ Email doğrulandı: $email');
+          AppLogger.log('✅ Email doğrulandı: $email');
         }
       } else {
         if (kDebugMode) {
-          print('❌ Doğrulama kodu yanlış');
+          AppLogger.log('❌ Doğrulama kodu yanlış');
         }
       }
 
       return isValid;
     } catch (e) {
       if (kDebugMode) {
-        print('❌ Doğrulama hatası: $e');
+        AppLogger.log('❌ Doğrulama hatası: $e');
       }
       return false;
     }
@@ -135,7 +136,7 @@ class EmailVerificationService {
       return verified == 1;
     } catch (e) {
       if (kDebugMode) {
-        print('❌ Email doğrulama kontrolü hatası: $e');
+        AppLogger.log('❌ Email doğrulama kontrolü hatası: $e');
       }
       return false;
     }
@@ -225,3 +226,4 @@ class _VerificationData {
 
   _VerificationData({required this.code, required this.expiryTime});
 }
+

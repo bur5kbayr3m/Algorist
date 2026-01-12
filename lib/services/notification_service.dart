@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:mailer/mailer.dart' as mailer;
 import 'package:mailer/smtp_server.dart';
+import '../utils/app_logger.dart';
 
 /// Bildirim Servisi - Push ve Email bildirimleri yönetir
 class NotificationService {
@@ -53,7 +54,7 @@ class NotificationService {
     await _createNotificationChannel();
 
     _isInitialized = true;
-    print('🔔 Notification service initialized');
+    AppLogger.log('🔔 Notification service initialized');
   }
 
   /// Android bildirim kanalı oluştur
@@ -76,7 +77,7 @@ class NotificationService {
 
   /// Bildirime tıklandığında
   void _onNotificationTapped(NotificationResponse response) {
-    print('🔔 Notification tapped: ${response.payload}');
+    AppLogger.log('🔔 Notification tapped: ${response.payload}');
     // Burada bildirime tıklandığında yapılacak işlemler
   }
 
@@ -118,7 +119,7 @@ class NotificationService {
       payload: payload,
     );
 
-    print('🔔 Notification shown: $title');
+    AppLogger.log('🔔 Notification shown: $title');
   }
 
   /// Portföy değişikliği bildirimi
@@ -215,11 +216,11 @@ class NotificationService {
     try {
       // SMTP ayarları boşsa email gönderme
       if (_smtpUsername.isEmpty || _smtpPassword.isEmpty) {
-        print('⚠️ SMTP credentials not configured');
+        AppLogger.log('⚠️ SMTP credentials not configured');
         // Geliştirme ortamında simüle et
-        print('📧 [SIMULATED] Email to: $toEmail');
-        print('   Subject: $subject');
-        print('   Body: $body');
+        AppLogger.log('📧 [SIMULATED] Email to: $toEmail');
+        AppLogger.log('   Subject: $subject');
+        AppLogger.log('   Body: $body');
         return true;
       }
 
@@ -240,10 +241,10 @@ class NotificationService {
         ..html = isHtml ? body : null;
 
       await mailer.send(message, smtpServer);
-      print('✅ Email sent to: $toEmail');
+      AppLogger.log('✅ Email sent to: $toEmail');
       return true;
     } catch (e) {
-      print('❌ Error sending email: $e');
+      AppLogger.log('❌ Error sending email: $e');
       return false;
     }
   }
@@ -431,7 +432,7 @@ class NotificationService {
   /// Tüm bildirimleri temizle
   Future<void> cancelAllNotifications() async {
     await _localNotifications.cancelAll();
-    print('🔔 All notifications cancelled');
+    AppLogger.log('🔔 All notifications cancelled');
   }
 
   /// Belirli bir bildirimi iptal et
@@ -463,3 +464,4 @@ class NotificationService {
     return true;
   }
 }
+
