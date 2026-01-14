@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
 import '../services/portfolio_service.dart';
 import '../services/email_verification_service.dart';
+import '../services/yahoo_finance_service.dart';
 import '../theme/app_colors.dart';
 import '../utils/app_logger.dart';
 import 'email_verification_screen.dart';
@@ -777,6 +778,8 @@ class _AddAssetScreenState extends State<AddAssetScreen> {
         // Altın seçiliyse dropdown göster
         if (_selectedAssetType == 'Altın')
           _buildGoldTypeDropdown()
+        else if (_selectedAssetType == 'Hisse')
+          _buildStockSelector()
         else
           TextField(
             controller: _assetNameController,
@@ -814,6 +817,57 @@ class _AddAssetScreenState extends State<AddAssetScreen> {
             ),
           ),
       ],
+    );
+  }
+
+  Widget _buildStockSelector() {
+    return GestureDetector(
+      onTap: () => _showStockSelectionModal(),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: AppColors.surfaceDark,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.white.withOpacity(0.2)),
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(
+                _assetNameController.text.isEmpty
+                    ? 'Hisse Seç'
+                    : _assetNameController.text,
+                style: GoogleFonts.manrope(
+                  fontSize: 16,
+                  color: _assetNameController.text.isEmpty
+                      ? AppColors.onSurfaceDarkSecondary
+                      : AppColors.onSurfaceDark,
+                ),
+              ),
+            ),
+            Icon(
+              Icons.arrow_forward_ios_rounded,
+              size: 16,
+              color: AppColors.onSurfaceDarkSecondary,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showStockSelectionModal() async {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (context) => _StockSelectionSheet(
+        onStockSelected: (symbol, name) {
+          setState(() {
+            _assetNameController.text = symbol;
+          });
+        },
+      ),
     );
   }
 
@@ -1121,6 +1175,355 @@ class _AddAssetScreenState extends State<AddAssetScreen> {
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+// Hisse seçim modal widget'ı
+class _StockSelectionSheet extends StatefulWidget {
+  final Function(String symbol, String name) onStockSelected;
+
+  const _StockSelectionSheet({required this.onStockSelected});
+
+  @override
+  State<_StockSelectionSheet> createState() => _StockSelectionSheetState();
+}
+
+class _StockSelectionSheetState extends State<_StockSelectionSheet> {
+  List<Map<String, dynamic>> _stocks = [];
+  List<Map<String, dynamic>> _filteredStocks = [];
+  bool _isLoading = true;
+  final TextEditingController _searchController = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    _loadStocks();
+    _searchController.addListener(_filterStocks);
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadStocks() async {
+    setState(() => _isLoading = true);
+    
+    try {
+      final symbols = YahooFinanceService.getBist100Symbols();
+      AppLogger.info('Loading ${symbols.length} stocks from Yahoo Finance');
+      
+      final quotes = await YahooFinanceService.instance.getMultipleQuotes(symbols);
+      
+      AppLogger.info('Received ${quotes.length} quotes from Yahoo Finance');
+      
+      if (quotes.isEmpty) {
+        AppLogger.warning('No quotes received from Yahoo Finance');
+        _stocks = [];
+        _filteredStocks = [];
+        setState(() => _isLoading = false);
+        return;
+      }
+      
+      _stocks = quotes.map((quote) {
+        final symbol = quote['symbol'].toString().replaceAll('.IS', '');
+        return {
+          'symbol': symbol,
+          'name': _getCompanyName(symbol),
+          'price': quote['price']?.toDouble() ?? 0.0,
+          'change': quote['change']?.toDouble() ?? 0.0,
+          'changePercent': quote['changePercent']?.toDouble() ?? 0.0,
+        };
+      }).toList();
+      
+      _filteredStocks = List.from(_stocks);
+      AppLogger.info('Loaded ${_stocks.length} stocks successfully');
+    } catch (e) {
+      AppLogger.error('Error loading stocks', e);
+      _stocks = [];
+      _filteredStocks = [];
+    } finally {
+      setState(() => _isLoading = false);
+    }
+  }
+
+  void _filterStocks() {
+    final query = _searchController.text.toLowerCase();
+    setState(() {
+      if (query.isEmpty) {
+        _filteredStocks = List.from(_stocks);
+      } else {
+        _filteredStocks = _stocks.where((stock) {
+          final symbol = stock['symbol'].toString().toLowerCase();
+          final name = stock['name'].toString().toLowerCase();
+          return symbol.contains(query) || name.contains(query);
+        }).toList();
+      }
+    });
+  }
+
+  String _getCompanyName(String symbol) {
+    final Map<String, String> names = {
+      'THYAO': 'Türk Hava Yolları',
+      'BIMAS': 'BIM Mağazaları',
+      'EREGL': 'Ereğli Demir Çelik',
+      'SAHOL': 'Sabancı Holding',
+      'AKBNK': 'Akbank',
+      'GARAN': 'Garanti Bankası',
+      'ISCTR': 'İş Bankası (C)',
+      'KCHOL': 'Koç Holding',
+      'TUPRS': 'Tüpraş',
+      'PETKM': 'Petkim',
+      'TCELL': 'Turkcell',
+      'ASELS': 'Aselsan',
+      'SISE': 'Şişe Cam',
+      'VAKBN': 'Vakıfbank',
+      'ENKAI': 'Enka İnşaat',
+      'FROTO': 'Ford Otosan',
+      'TTKOM': 'Türk Telekom',
+      'KOZAL': 'Koza Altın',
+      'ARCLK': 'Arçelik',
+      'TOASO': 'Tofaş Oto',
+    };
+    return names[symbol] ?? symbol;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: MediaQuery.of(context).size.height * 0.85,
+      decoration: const BoxDecoration(
+        color: AppColors.backgroundDark,
+        borderRadius: BorderRadius.only(
+          topLeft: Radius.circular(24),
+          topRight: Radius.circular(24),
+        ),
+      ),
+      child: Column(
+        children: [
+          // Handle bar
+          Container(
+            margin: const EdgeInsets.only(top: 12, bottom: 8),
+            width: 40,
+            height: 4,
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.3),
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+          
+          // Header
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Hisse Seç',
+                    style: GoogleFonts.manrope(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      color: AppColors.onSurfaceDark,
+                    ),
+                  ),
+                ),
+                IconButton(
+                  onPressed: () => Navigator.pop(context),
+                  icon: const Icon(Icons.close_rounded),
+                  color: AppColors.onSurfaceDarkSecondary,
+                ),
+              ],
+            ),
+          ),
+          
+          // Search field
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: TextField(
+              controller: _searchController,
+              style: GoogleFonts.manrope(
+                fontSize: 16,
+                color: AppColors.onSurfaceDark,
+              ),
+              decoration: InputDecoration(
+                hintText: 'Hisse ara...',
+                hintStyle: GoogleFonts.manrope(
+                  color: AppColors.onSurfaceDarkSecondary,
+                ),
+                prefixIcon: Icon(
+                  Icons.search_rounded,
+                  color: AppColors.onSurfaceDarkSecondary,
+                ),
+                filled: true,
+                fillColor: AppColors.surfaceDark,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide.none,
+                ),
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 12,
+                ),
+              ),
+            ),
+          ),
+          
+          const SizedBox(height: 16),
+          
+          // Stocks list
+          Expanded(
+            child: _isLoading
+                ? const Center(
+                    child: CircularProgressIndicator(
+                      color: AppColors.primary,
+                    ),
+                  )
+                : _stocks.isEmpty
+                    ? Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.cloud_off_rounded,
+                              size: 64,
+                              color: AppColors.onSurfaceDarkSecondary,
+                            ),
+                            const SizedBox(height: 16),
+                            Text(
+                              'Yahoo Finance\'den veri alınamadı',
+                              style: GoogleFonts.manrope(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w500,
+                                color: AppColors.onSurfaceDark,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              'Lütfen internet bağlantınızı kontrol edin',
+                              style: GoogleFonts.manrope(
+                                fontSize: 14,
+                                color: AppColors.onSurfaceDarkSecondary,
+                              ),
+                            ),
+                            const SizedBox(height: 24),
+                            ElevatedButton.icon(
+                              onPressed: _loadStocks,
+                              icon: const Icon(Icons.refresh_rounded),
+                              label: Text(
+                                'Tekrar Dene',
+                                style: GoogleFonts.manrope(
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: AppColors.primary,
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 24,
+                                  vertical: 12,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      )
+                    : _filteredStocks.isEmpty
+                        ? Center(
+                            child: Text(
+                              'Hisse bulunamadı',
+                              style: GoogleFonts.manrope(
+                                fontSize: 16,
+                                color: AppColors.onSurfaceDarkSecondary,
+                              ),
+                            ),
+                          )
+                        : ListView.builder(
+                        itemCount: _filteredStocks.length,
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        itemBuilder: (context, index) {
+                          final stock = _filteredStocks[index];
+                          final isPositive = (stock['change'] ?? 0.0) >= 0;
+                          
+                          return Container(
+                            margin: const EdgeInsets.only(bottom: 8),
+                            decoration: BoxDecoration(
+                              color: AppColors.surfaceDark,
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: ListTile(
+                              onTap: () {
+                                widget.onStockSelected(
+                                  stock['symbol'],
+                                  stock['name'],
+                                );
+                                Navigator.pop(context);
+                              },
+                              contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                                vertical: 8,
+                              ),
+                              title: Text(
+                                stock['symbol'],
+                                style: GoogleFonts.manrope(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                  color: AppColors.onSurfaceDark,
+                                ),
+                              ),
+                              subtitle: Text(
+                                stock['name'],
+                                style: GoogleFonts.manrope(
+                                  fontSize: 13,
+                                  color: AppColors.onSurfaceDarkSecondary,
+                                ),
+                              ),
+                              trailing: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                crossAxisAlignment: CrossAxisAlignment.end,
+                                children: [
+                                  Text(
+                                    '₺${stock['price'].toStringAsFixed(2)}',
+                                    style: GoogleFonts.manrope(
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.bold,
+                                      color: AppColors.onSurfaceDark,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                      vertical: 2,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: (isPositive
+                                              ? Colors.green
+                                              : Colors.red)
+                                          .withOpacity(0.15),
+                                      borderRadius: BorderRadius.circular(6),
+                                    ),
+                                    child: Text(
+                                      '${isPositive ? '+' : ''}${stock['changePercent'].toStringAsFixed(2)}%',
+                                      style: GoogleFonts.manrope(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600,
+                                        color: isPositive
+                                            ? Colors.green
+                                            : Colors.red,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+          ),
+        ],
       ),
     );
   }

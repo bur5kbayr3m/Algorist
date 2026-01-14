@@ -116,31 +116,35 @@ class _AppBottomNavigationState extends State<AppBottomNavigation> {
             ? null
             : () {
                 if (index == 0) {
-                  Navigator.pushReplacement(
+                  Navigator.pushAndRemoveUntil(
                     context,
                     MaterialPageRoute(
                         builder: (context) => const PortfolioScreen()),
+                    (route) => false,
                   );
                 } else if (index == 1) {
-                  if (userEmail != null) {
-                    Navigator.pushReplacement(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => MarketsScreen(userEmail: userEmail),
-                      ),
-                    );
-                  }
-                } else if (index == 2) {
-                  Navigator.push(
+                  Navigator.pushAndRemoveUntil(
                     context,
                     MaterialPageRoute(
-                        builder: (context) => const AnalyticsScreen()),
+                      builder: (context) => MarketsScreen(userEmail: userEmail ?? ''),
+                    ),
+                    (route) => false,
+                  );
+                } else if (index == 2) {
+                  Navigator.pushAndRemoveUntil(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const AnalyticsScreen(),
+                    ),
+                    (route) => false,
                   );
                 } else if (index == 3) {
-                  Navigator.push(
+                  Navigator.pushAndRemoveUntil(
                     context,
                     MaterialPageRoute(
-                        builder: (context) => const ProfileScreen()),
+                      builder: (context) => const ProfileScreen(),
+                    ),
+                    (route) => false,
                   );
                 }
               },

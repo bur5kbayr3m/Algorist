@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:fl_chart/fl_chart.dart';
 import '../theme/app_colors.dart';
 import '../services/news_service.dart';
+import '../services/yahoo_finance_service.dart';
 import 'markets_screen.dart';
 
 class MarketAssetDetailScreen extends StatefulWidget {
@@ -28,8 +30,10 @@ class _MarketAssetDetailScreenState extends State<MarketAssetDetailScreen>
   ChartPeriod _selectedPeriod = ChartPeriod.day;
   ChartType _selectedChartType = ChartType.line;
   bool _isLoadingNews = true;
+  bool _isLoadingChart = true;
   List<KapNews> _kapNews = [];
   List<NewsItem> _generalNews = [];
+  List<Map<String, dynamic>> _chartData = [];
   late TabController _tabController;
 
   @override
@@ -37,6 +41,7 @@ class _MarketAssetDetailScreenState extends State<MarketAssetDetailScreen>
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
     _loadNews();
+    _loadChartData();
   }
 
   @override
@@ -72,6 +77,69 @@ class _MarketAssetDetailScreenState extends State<MarketAssetDetailScreen>
     } catch (e) {
       if (mounted) {
         setState(() => _isLoadingNews = false);
+      }
+    }
+  }
+
+  Future<void> _loadChartData() async {
+    setState(() => _isLoadingChart = true);
+
+    try {
+      // Yahoo Finance'den tarihsel veri çek
+      String range = '1d';
+      String interval = '5m';
+      
+      switch (_selectedPeriod) {
+        case ChartPeriod.day:
+          range = '1d';
+          interval = '5m';
+          break;
+        case ChartPeriod.week:
+          range = '5d';
+          interval = '15m';
+          break;
+        case ChartPeriod.month:
+          range = '1mo';
+          interval = '1h';
+          break;
+        case ChartPeriod.threeMonths:
+          range = '3mo';
+          interval = '1d';
+          break;
+        case ChartPeriod.year:
+          range = '1y';
+          interval = '1wk';
+          break;
+        case ChartPeriod.all:
+          range = '5y';
+          interval = '1mo';
+          break;
+      }
+
+      final symbol = '${widget.marketItem.symbol}.IS';
+      final data = await YahooFinanceService.instance.getHistoricalData(
+        symbol,
+        interval: interval,
+        range: range,
+      );
+
+      if (mounted && data != null) {
+        setState(() {
+          _chartData = data['data'] as List<Map<String, dynamic>>;
+          _isLoadingChart = false;
+        });
+      } else if (mounted) {
+        setState(() {
+          _chartData = [];
+          _isLoadingChart = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _chartData = [];
+          _isLoadingChart = false;
+        });
       }
     }
   }
@@ -324,7 +392,10 @@ class _MarketAssetDetailScreenState extends State<MarketAssetDetailScreen>
             children: ChartPeriod.values.map((period) {
               final isSelected = _selectedPeriod == period;
               return InkWell(
-                onTap: () => setState(() => _selectedPeriod = period),
+                onTap: () {
+                  setState(() => _selectedPeriod = period);
+                  _loadChartData();
+                },
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                   decoration: BoxDecoration(
@@ -347,41 +418,393 @@ class _MarketAssetDetailScreenState extends State<MarketAssetDetailScreen>
           ),
           const SizedBox(height: 24),
 
-          // Grafik placeholder
+          // Gerçek Grafik
           SizedBox(
             height: 200,
-            child: Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(
-                    _getChartTypeIcon(_selectedChartType),
-                    size: 48,
-                    color: AppColors.primary.withOpacity(0.5),
-                  ),
-                  const SizedBox(height: 12),
-                  Text(
-                    '${_getChartTypeName(_selectedChartType)} Grafik',
-                    style: GoogleFonts.manrope(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                      color: AppColors.textMainDark,
+            child: _isLoadingChart
+                ? const Center(child: CircularProgressIndicator(color: AppColors.primary))
+                : _chartData.isEmpty
+                    ? Center(
+                        child: Text(
+                          'Grafik verisi yüklenemedi',
+                          style: GoogleFonts.manrope(
+                            fontSize: 14,
+                            color: AppColors.textSecondaryDark,
+                          ),
+                        ),
+                      )
+                    : _buildChartByType(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildChartByType() {
+    switch (_selectedChartType) {
+      case ChartType.line:
+        return _buildLineChart();
+      case ChartType.candlestick:
+        return _buildCandlestickChart();
+      case ChartType.area:
+        return _buildAreaChart();
+      case ChartType.bar:
+        return _buildBarChart();
+    }
+  }
+
+  Widget _buildLineChart() {
+    return LineChart(
+      LineChartData(
+        gridData: FlGridData(
+          show: true,
+          drawVerticalLine: false,
+          horizontalInterval: 1,
+          getDrawingHorizontalLine: (value) {
+            return FlLine(
+              color: AppColors.borderDark.withOpacity(0.3),
+              strokeWidth: 1,
+            );
+          },
+        ),
+        titlesData: FlTitlesData(
+          show: true,
+          rightTitles: const AxisTitles(
+            sideTitles: SideTitles(showTitles: false),
+          ),
+          topTitles: const AxisTitles(
+            sideTitles: SideTitles(showTitles: false),
+          ),
+          bottomTitles: AxisTitles(
+            sideTitles: SideTitles(
+              showTitles: true,
+              reservedSize: 30,
+              interval: _chartData.length / 4,
+              getTitlesWidget: (value, meta) {
+                if (value.toInt() >= 0 && value.toInt() < _chartData.length) {
+                  final date = _chartData[value.toInt()]['date'] as DateTime;
+                  return Padding(
+                    padding: const EdgeInsets.only(top: 8.0),
+                    child: Text(
+                      DateFormat('HH:mm').format(date),
+                      style: GoogleFonts.manrope(
+                        fontSize: 10,
+                        color: AppColors.textSecondaryDark,
+                      ),
                     ),
+                  );
+                }
+                return const SizedBox();
+              },
+            ),
+          ),
+          leftTitles: AxisTitles(
+            sideTitles: SideTitles(
+              showTitles: true,
+              reservedSize: 40,
+              getTitlesWidget: (value, meta) {
+                return Text(
+                  value.toStringAsFixed(0),
+                  style: GoogleFonts.manrope(
+                    fontSize: 10,
+                    color: AppColors.textSecondaryDark,
                   ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Gerçek zamanlı fiyat grafiği\nAPI entegrasyonu ile eklenecek',
-                    textAlign: TextAlign.center,
-                    style: GoogleFonts.manrope(
-                      fontSize: 12,
-                      color: AppColors.textSecondaryDark.withOpacity(0.7),
+                );
+              },
+            ),
+          ),
+        ),
+        borderData: FlBorderData(show: false),
+        minX: 0,
+        maxX: (_chartData.length - 1).toDouble(),
+        minY: _chartData.map((e) => e['close'] as double).reduce((a, b) => a < b ? a : b) * 0.995,
+        maxY: _chartData.map((e) => e['close'] as double).reduce((a, b) => a > b ? a : b) * 1.005,
+        lineBarsData: [
+          LineChartBarData(
+            spots: _chartData.asMap().entries.map((entry) {
+              return FlSpot(
+                entry.key.toDouble(),
+                entry.value['close'] as double,
+              );
+            }).toList(),
+            isCurved: true,
+            color: widget.marketItem.change >= 0 ? Colors.green : Colors.red,
+            barWidth: 2,
+            isStrokeCapRound: true,
+            dotData: const FlDotData(show: false),
+            belowBarData: BarAreaData(show: false),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAreaChart() {
+    return LineChart(
+      LineChartData(
+        gridData: FlGridData(
+          show: true,
+          drawVerticalLine: false,
+          horizontalInterval: 1,
+          getDrawingHorizontalLine: (value) {
+            return FlLine(
+              color: AppColors.borderDark.withOpacity(0.3),
+              strokeWidth: 1,
+            );
+          },
+        ),
+        titlesData: FlTitlesData(
+          show: true,
+          rightTitles: const AxisTitles(
+            sideTitles: SideTitles(showTitles: false),
+          ),
+          topTitles: const AxisTitles(
+            sideTitles: SideTitles(showTitles: false),
+          ),
+          bottomTitles: AxisTitles(
+            sideTitles: SideTitles(
+              showTitles: true,
+              reservedSize: 30,
+              interval: _chartData.length / 4,
+              getTitlesWidget: (value, meta) {
+                if (value.toInt() >= 0 && value.toInt() < _chartData.length) {
+                  final date = _chartData[value.toInt()]['date'] as DateTime;
+                  return Padding(
+                    padding: const EdgeInsets.only(top: 8.0),
+                    child: Text(
+                      DateFormat('HH:mm').format(date),
+                      style: GoogleFonts.manrope(
+                        fontSize: 10,
+                        color: AppColors.textSecondaryDark,
+                      ),
                     ),
+                  );
+                }
+                return const SizedBox();
+              },
+            ),
+          ),
+          leftTitles: AxisTitles(
+            sideTitles: SideTitles(
+              showTitles: true,
+              reservedSize: 40,
+              getTitlesWidget: (value, meta) {
+                return Text(
+                  value.toStringAsFixed(0),
+                  style: GoogleFonts.manrope(
+                    fontSize: 10,
+                    color: AppColors.textSecondaryDark,
                   ),
-                ],
-              ),
+                );
+              },
+            ),
+          ),
+        ),
+        borderData: FlBorderData(show: false),
+        minX: 0,
+        maxX: (_chartData.length - 1).toDouble(),
+        minY: _chartData.map((e) => e['close'] as double).reduce((a, b) => a < b ? a : b) * 0.995,
+        maxY: _chartData.map((e) => e['close'] as double).reduce((a, b) => a > b ? a : b) * 1.005,
+        lineBarsData: [
+          LineChartBarData(
+            spots: _chartData.asMap().entries.map((entry) {
+              return FlSpot(
+                entry.key.toDouble(),
+                entry.value['close'] as double,
+              );
+            }).toList(),
+            isCurved: true,
+            color: widget.marketItem.change >= 0 ? Colors.green : Colors.red,
+            barWidth: 2,
+            isStrokeCapRound: true,
+            dotData: const FlDotData(show: false),
+            belowBarData: BarAreaData(
+              show: true,
+              color: (widget.marketItem.change >= 0 ? Colors.green : Colors.red).withOpacity(0.1),
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildCandlestickChart() {
+    return BarChart(
+      BarChartData(
+        gridData: FlGridData(
+          show: true,
+          drawVerticalLine: false,
+          horizontalInterval: 1,
+          getDrawingHorizontalLine: (value) {
+            return FlLine(
+              color: AppColors.borderDark.withOpacity(0.3),
+              strokeWidth: 1,
+            );
+          },
+        ),
+        titlesData: FlTitlesData(
+          show: true,
+          rightTitles: const AxisTitles(
+            sideTitles: SideTitles(showTitles: false),
+          ),
+          topTitles: const AxisTitles(
+            sideTitles: SideTitles(showTitles: false),
+          ),
+          bottomTitles: AxisTitles(
+            sideTitles: SideTitles(
+              showTitles: true,
+              reservedSize: 30,
+              interval: _chartData.length / 4,
+              getTitlesWidget: (value, meta) {
+                if (value.toInt() >= 0 && value.toInt() < _chartData.length) {
+                  final date = _chartData[value.toInt()]['date'] as DateTime;
+                  return Padding(
+                    padding: const EdgeInsets.only(top: 8.0),
+                    child: Text(
+                      DateFormat('HH:mm').format(date),
+                      style: GoogleFonts.manrope(
+                        fontSize: 10,
+                        color: AppColors.textSecondaryDark,
+                      ),
+                    ),
+                  );
+                }
+                return const SizedBox();
+              },
+            ),
+          ),
+          leftTitles: AxisTitles(
+            sideTitles: SideTitles(
+              showTitles: true,
+              reservedSize: 40,
+              getTitlesWidget: (value, meta) {
+                return Text(
+                  value.toStringAsFixed(0),
+                  style: GoogleFonts.manrope(
+                    fontSize: 10,
+                    color: AppColors.textSecondaryDark,
+                  ),
+                );
+              },
+            ),
+          ),
+        ),
+        borderData: FlBorderData(show: false),
+        barGroups: _chartData.asMap().entries.map((entry) {
+          final data = entry.value;
+          final open = data['open'] as double;
+          final close = data['close'] as double;
+          final high = data['high'] as double;
+          final low = data['low'] as double;
+          final isPositive = close >= open;
+          
+          return BarChartGroupData(
+            x: entry.key,
+            barRods: [
+              // Fitil (low-high)
+              BarChartRodData(
+                fromY: low,
+                toY: high,
+                color: isPositive ? Colors.green : Colors.red,
+                width: 1,
+              ),
+              // Gövde (open-close)
+              BarChartRodData(
+                fromY: open < close ? open : close,
+                toY: open < close ? close : open,
+                color: isPositive ? Colors.green : Colors.red,
+                width: 8,
+              ),
+            ],
+          );
+        }).toList(),
+      ),
+    );
+  }
+
+  Widget _buildBarChart() {
+    return BarChart(
+      BarChartData(
+        gridData: FlGridData(
+          show: true,
+          drawVerticalLine: false,
+          horizontalInterval: 1,
+          getDrawingHorizontalLine: (value) {
+            return FlLine(
+              color: AppColors.borderDark.withOpacity(0.3),
+              strokeWidth: 1,
+            );
+          },
+        ),
+        titlesData: FlTitlesData(
+          show: true,
+          rightTitles: const AxisTitles(
+            sideTitles: SideTitles(showTitles: false),
+          ),
+          topTitles: const AxisTitles(
+            sideTitles: SideTitles(showTitles: false),
+          ),
+          bottomTitles: AxisTitles(
+            sideTitles: SideTitles(
+              showTitles: true,
+              reservedSize: 30,
+              interval: _chartData.length / 4,
+              getTitlesWidget: (value, meta) {
+                if (value.toInt() >= 0 && value.toInt() < _chartData.length) {
+                  final date = _chartData[value.toInt()]['date'] as DateTime;
+                  return Padding(
+                    padding: const EdgeInsets.only(top: 8.0),
+                    child: Text(
+                      DateFormat('HH:mm').format(date),
+                      style: GoogleFonts.manrope(
+                        fontSize: 10,
+                        color: AppColors.textSecondaryDark,
+                      ),
+                    ),
+                  );
+                }
+                return const SizedBox();
+              },
+            ),
+          ),
+          leftTitles: AxisTitles(
+            sideTitles: SideTitles(
+              showTitles: true,
+              reservedSize: 40,
+              getTitlesWidget: (value, meta) {
+                return Text(
+                  value.toStringAsFixed(0),
+                  style: GoogleFonts.manrope(
+                    fontSize: 10,
+                    color: AppColors.textSecondaryDark,
+                  ),
+                );
+              },
+            ),
+          ),
+        ),
+        borderData: FlBorderData(show: false),
+        barGroups: _chartData.asMap().entries.map((entry) {
+          final data = entry.value;
+          final close = data['close'] as double;
+          final open = data['open'] as double;
+          final isPositive = close >= open;
+          
+          return BarChartGroupData(
+            x: entry.key,
+            barRods: [
+              BarChartRodData(
+                toY: close,
+                color: isPositive ? Colors.green : Colors.red,
+                width: 8,
+                borderRadius: const BorderRadius.only(
+                  topLeft: Radius.circular(4),
+                  topRight: Radius.circular(4),
+                ),
+              ),
+            ],
+          );
+        }).toList(),
       ),
     );
   }

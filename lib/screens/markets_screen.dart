@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../theme/app_colors.dart';
@@ -5,6 +6,7 @@ import '../utils/app_logger.dart';
 import '../widgets/app_bottom_navigation.dart';
 import '../widgets/offline_mode_banner.dart';
 import '../widgets/success_dialog.dart';
+import '../services/yahoo_finance_service.dart';
 import 'market_asset_detail_screen.dart';
 
 class MarketsScreen extends StatefulWidget {
@@ -19,98 +21,80 @@ class MarketsScreen extends StatefulWidget {
 class _MarketsScreenState extends State<MarketsScreen> {
   List<MarketItem> _watchlist = [];
   bool _isLoading = true;
+  Timer? _refreshTimer;
+  DateTime? _lastUpdate;
 
   @override
   void initState() {
     super.initState();
     _loadWatchlist();
+    // Her 30 saniyede bir otomatik güncelle
+    _refreshTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+      _loadWatchlist();
+    });
+  }
+
+  @override
+  void dispose() {
+    _refreshTimer?.cancel();
+    super.dispose();
   }
 
   Future<void> _loadWatchlist() async {
     setState(() => _isLoading = true);
 
     try {
-      // Kullanıcının watchlist'ini yükle (şimdilik default göster)
-      _watchlist = _getDefaultMarketItems();
+      // Yahoo Finance'den gerçek veri çek - sadece 3 hisse
+      final symbols = YahooFinanceService.getBist100Symbols().take(3).toList();
+      final quotes = await YahooFinanceService.instance.getMultipleQuotes(symbols);
+      
+      _watchlist = quotes.map((quote) {
+        return MarketItem(
+          symbol: quote['symbol'].toString().replaceAll('.IS', ''),
+          name: _getCompanyName(quote['symbol'].toString()),
+          category: 'Hisse',
+          price: quote['price']?.toDouble() ?? 0.0,
+          change: quote['change']?.toDouble() ?? 0.0,
+          changePercent: quote['changePercent']?.toDouble() ?? 0.0,
+        );
+      }).toList();
+      
+      _lastUpdate = DateTime.now();
     } catch (e) {
       AppLogger.error('Error loading watchlist', e);
+      _watchlist = [];
     } finally {
       setState(() => _isLoading = false);
     }
   }
+  
+  String _getCompanyName(String symbol) {
+    final Map<String, String> names = {
+      'THYAO.IS': 'Türk Hava Yolları',
+      'BIMAS.IS': 'BIM Mağazaları',
+      'EREGL.IS': 'Ereğli Demir Çelik',
+      'SAHOL.IS': 'Sabancı Holding',
+      'AKBNK.IS': 'Akbank',
+    };
+    return names[symbol] ?? symbol;
+  }
+
+  String _formatLastUpdate(DateTime time) {
+    final now = DateTime.now();
+    final diff = now.difference(time);
+    
+    if (diff.inSeconds < 60) {
+      return 'Az önce';
+    } else if (diff.inMinutes < 60) {
+      return '${diff.inMinutes} dakika önce';
+    } else {
+      return '${diff.inHours} saat önce';
+    }
+  }
 
   List<MarketItem> _getDefaultMarketItems() {
-    return [
-      // En çok yatırım yapılan 5 Türk şirketi
-      MarketItem(
-        symbol: 'THYAO',
-        name: 'Türk Hava Yolları',
-        category: 'Hisse',
-        price: 285.50,
-        change: 3.25,
-        changePercent: 1.15,
-      ),
-      MarketItem(
-        symbol: 'BIMAS',
-        name: 'BIM Mağazaları',
-        category: 'Hisse',
-        price: 564.00,
-        change: -2.50,
-        changePercent: -0.44,
-      ),
-      MarketItem(
-        symbol: 'EREGL',
-        name: 'Ereğli Demir Çelik',
-        category: 'Hisse',
-        price: 42.86,
-        change: 1.12,
-        changePercent: 2.68,
-      ),
-      MarketItem(
-        symbol: 'SAHOL',
-        name: 'Sabancı Holding',
-        category: 'Hisse',
-        price: 78.25,
-        change: 0.75,
-        changePercent: 0.97,
-      ),
-      MarketItem(
-        symbol: 'AKBNK',
-        name: 'Akbank',
-        category: 'Hisse',
-        price: 56.80,
-        change: -0.40,
-        changePercent: -0.70,
-      ),
-
-      // Döviz kurları
-      MarketItem(
-        symbol: 'USD/TRY',
-        name: 'Amerikan Doları',
-        category: 'Döviz',
-        price: 34.25,
-        change: 0.15,
-        changePercent: 0.44,
-      ),
-      MarketItem(
-        symbol: 'EUR/TRY',
-        name: 'Euro',
-        category: 'Döviz',
-        price: 37.45,
-        change: 0.22,
-        changePercent: 0.59,
-      ),
-
-      // Altın
-      MarketItem(
-        symbol: 'XAU/TRY',
-        name: 'Altın (Gram)',
-        category: 'Emtia',
-        price: 2845.50,
-        change: 12.50,
-        changePercent: 0.44,
-      ),
-    ];
+    // TODO: Gerçek API verisi eklenecek
+    return [];
   }
 
   void _showAddItemDialog() {
@@ -168,92 +152,34 @@ class _MarketsScreenState extends State<MarketsScreen> {
                   child: ListView(
                     padding: const EdgeInsets.all(16),
                     children: [
-                      // Header info
-                      Container(
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            colors: [
-                              AppColors.primary,
-                              AppColors.primary.withOpacity(0.8),
-                            ],
-                          ),
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'BIST 100',
-                                style: GoogleFonts.plusJakartaSans(
-                                  color: Colors.white,
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                '10,234.56',
-                                style: GoogleFonts.plusJakartaSans(
-                                  color: Colors.white,
-                                  fontSize: 24,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 6,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.green.withOpacity(0.2),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const Icon(
-                                Icons.arrow_upward,
-                                color: Colors.greenAccent,
-                                size: 16,
-                              ),
-                              const SizedBox(width: 4),
-                              Text(
-                                '+1.24%',
-                                style: GoogleFonts.plusJakartaSans(
-                                  color: Colors.greenAccent,
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-
-                  const SizedBox(height: 24),
-
-                  // İzleme Listesi Header
+                      // İzleme Listesi Header
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text(
-                        'İzleme Listem',
-                        style: GoogleFonts.plusJakartaSans(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                          color: isDarkMode
-                              ? Colors.white
-                              : AppColors.textPrimary,
-                        ),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'İzleme Listem',
+                            style: GoogleFonts.plusJakartaSans(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                              color: isDarkMode
+                                  ? Colors.white
+                                  : AppColors.textPrimary,
+                            ),
+                          ),
+                          if (_lastUpdate != null)
+                            Text(
+                              'Son güncelleme: ${_formatLastUpdate(_lastUpdate!)}',
+                              style: GoogleFonts.plusJakartaSans(
+                                fontSize: 11,
+                                color: isDarkMode
+                                    ? Colors.white.withOpacity(0.4)
+                                    : AppColors.textSecondary.withOpacity(0.6),
+                              ),
+                            ),
+                        ],
                       ),
                       Text(
                         '${_watchlist.length} varlık',
@@ -501,11 +427,50 @@ class _AddMarketItemSheetState extends State<AddMarketItemSheet>
   late TabController _tabController;
   final _searchController = TextEditingController();
   String _searchQuery = '';
+  bool _isLoading = true;
+  List<MarketItem> _bist100Stocks = [];
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
+    _loadBist100Stocks();
+  }
+
+  Future<void> _loadBist100Stocks() async {
+    setState(() => _isLoading = true);
+
+    try {
+      // Yahoo Finance'den BIST 100 hisselerini çek - ilk 3 hariç kalan 17 hisse
+      final symbols = YahooFinanceService.getBist100Symbols().skip(3).toList();
+      final quotes = await YahooFinanceService.instance.getMultipleQuotes(symbols);
+      
+      _bist100Stocks = quotes.map((quote) {
+        return MarketItem(
+          symbol: quote['symbol'].toString().replaceAll('.IS', ''),
+          name: _getCompanyName(quote['symbol'].toString()),
+          category: 'Hisse',
+          price: quote['price']?.toDouble() ?? 0.0,
+          change: quote['change']?.toDouble() ?? 0.0,
+          changePercent: quote['changePercent']?.toDouble() ?? 0.0,
+        );
+      }).toList();
+    } catch (e) {
+      _bist100Stocks = [];
+    } finally {
+      setState(() => _isLoading = false);
+    }
+  }
+
+  String _getCompanyName(String symbol) {
+    final Map<String, String> names = {
+      'THYAO.IS': 'Türk Hava Yolları',
+      'BIMAS.IS': 'BIM Mağazaları',
+      'EREGL.IS': 'Ereğli Demir Çelik',
+      'SAHOL.IS': 'Sabancı Holding',
+      'AKBNK.IS': 'Akbank',
+    };
+    return names[symbol] ?? symbol;
   }
 
   @override
@@ -516,162 +481,17 @@ class _AddMarketItemSheetState extends State<AddMarketItemSheet>
   }
 
   List<MarketItem> _getBist100Stocks() {
-    return [
-      MarketItem(
-        symbol: 'ASELS',
-        name: 'Aselsan',
-        category: 'Hisse',
-        price: 123.45,
-        change: 2.5,
-        changePercent: 2.07,
-      ),
-      MarketItem(
-        symbol: 'TUPRS',
-        name: 'Tüpraş',
-        category: 'Hisse',
-        price: 234.50,
-        change: -1.2,
-        changePercent: -0.51,
-      ),
-      MarketItem(
-        symbol: 'KCHOL',
-        name: 'Koç Holding',
-        category: 'Hisse',
-        price: 156.75,
-        change: 3.25,
-        changePercent: 2.12,
-      ),
-      MarketItem(
-        symbol: 'GARAN',
-        name: 'Garanti Bankası',
-        category: 'Hisse',
-        price: 89.60,
-        change: 0.85,
-        changePercent: 0.96,
-      ),
-      MarketItem(
-        symbol: 'ISCTR',
-        name: 'İş Bankası (C)',
-        category: 'Hisse',
-        price: 12.34,
-        change: -0.15,
-        changePercent: -1.20,
-      ),
-      MarketItem(
-        symbol: 'SISE',
-        name: 'Şişe Cam',
-        category: 'Hisse',
-        price: 67.80,
-        change: 1.50,
-        changePercent: 2.26,
-      ),
-      MarketItem(
-        symbol: 'PETKM',
-        name: 'Petkim',
-        category: 'Hisse',
-        price: 45.20,
-        change: 0.90,
-        changePercent: 2.03,
-      ),
-      MarketItem(
-        symbol: 'VAKBN',
-        name: 'Vakıfbank',
-        category: 'Hisse',
-        price: 34.56,
-        change: -0.44,
-        changePercent: -1.26,
-      ),
-      MarketItem(
-        symbol: 'ENKAI',
-        name: 'Enka İnşaat',
-        category: 'Hisse',
-        price: 78.90,
-        change: 2.10,
-        changePercent: 2.73,
-      ),
-      MarketItem(
-        symbol: 'TCELL',
-        name: 'Turkcell',
-        category: 'Hisse',
-        price: 98.50,
-        change: 1.75,
-        changePercent: 1.81,
-      ),
-    ];
+    return _bist100Stocks;
   }
 
   List<MarketItem> _getTefasFunds() {
-    return [
-      MarketItem(
-        symbol: 'GAH',
-        name: 'Garanti Portföy Altın',
-        category: 'Fon',
-        price: 0.123456,
-        change: 0.001,
-        changePercent: 0.82,
-      ),
-      MarketItem(
-        symbol: 'TBH',
-        name: 'Tacirler Portföy B Tipi',
-        category: 'Fon',
-        price: 0.089234,
-        change: -0.002,
-        changePercent: -2.19,
-      ),
-      MarketItem(
-        symbol: 'IPH',
-        name: 'İş Portföy Hisse',
-        category: 'Fon',
-        price: 0.156789,
-        change: 0.003,
-        changePercent: 1.95,
-      ),
-      MarketItem(
-        symbol: 'YAH',
-        name: 'Yapı Kredi Portföy Altın',
-        category: 'Fon',
-        price: 0.134567,
-        change: 0.0015,
-        changePercent: 1.13,
-      ),
-      MarketItem(
-        symbol: 'AKH',
-        name: 'Akbank Portföy Hisse',
-        category: 'Fon',
-        price: 0.098765,
-        change: -0.001,
-        changePercent: -1.00,
-      ),
-    ];
+    // TODO: Gerçek TEFAS API verisi eklenecek
+    return [];
   }
 
   List<MarketItem> _getBonds() {
-    return [
-      MarketItem(
-        symbol: 'TR230126T21',
-        name: 'Devlet Tahvili',
-        category: 'Tahvil',
-        price: 98.75,
-        change: 0.25,
-        changePercent: 0.25,
-      ),
-      MarketItem(
-        symbol: 'TR240612T19',
-        name: 'Hazine Bonosu',
-        category: 'Tahvil',
-        price: 102.30,
-        change: -0.15,
-        changePercent: -0.15,
-      ),
-      MarketItem(
-        symbol: 'THYAO.E',
-        name: 'THY Eurobond',
-        category: 'Tahvil',
-        price: 95.80,
-        change: 0.50,
-        changePercent: 0.52,
-      ),
-    ];
+    // TODO: Gerçek tahvil API verisi eklenecek
+    return [];
   }
 
   List<MarketItem> _getFilteredItems(List<MarketItem> items) {

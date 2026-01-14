@@ -7,6 +7,7 @@ import 'providers/auth_provider.dart';
 import 'screens/register_screen.dart';
 import 'screens/forgot_password_screen.dart';
 import 'screens/email_verification_screen.dart';
+import 'screens/portfolio_screen.dart';
 import 'services/biometric_service.dart';
 import 'services/email_verification_service.dart';
 import 'theme/app_colors.dart';
@@ -72,17 +73,21 @@ class _LoginScreenState extends State<LoginScreen> {
     );
 
     if (authenticated && mounted) {
-      // Otomatik giriş yap - AuthWrapper otomatik olarak PortfolioScreen'e yönlendirecek
       final success = await authProvider.loginWithEmail(email);
 
-      if (!success && mounted) {
+      if (success && mounted) {
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(
+            builder: (context) => const PortfolioScreen(),
+          ),
+        );
+      } else if (mounted) {
         ErrorDialog.show(
           context,
           title: 'Biyometrik Giriş Başarısız',
           message: authProvider.errorMessage ?? 'Biyometrik giriş yapılamadı. Lütfen daha sonra tekrar deneyin.',
         );
       }
-      // Başarılı olursa AuthWrapper isLoggedIn=true olduğunda otomatik geçiş yapar
     }
   }
 
@@ -112,7 +117,12 @@ class _LoginScreenState extends State<LoginScreen> {
           _emailController.text.trim(),
         );
       }
-      // AuthWrapper isLoggedIn=true olduğunda otomatik olarak PortfolioScreen'e geçecek
+      // PortfolioScreen'e yönlendir
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(
+          builder: (context) => const PortfolioScreen(),
+        ),
+      );
     } else if (mounted) {
       ErrorDialog.show(
         context,
@@ -127,14 +137,19 @@ class _LoginScreenState extends State<LoginScreen> {
 
     final success = await authProvider.signInWithGoogle();
 
-    if (!success && mounted) {
+    if (success && mounted) {
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(
+          builder: (context) => const PortfolioScreen(),
+        ),
+      );
+    } else if (mounted) {
       ErrorDialog.show(
         context,
         title: 'Google Girişi Başarısız',
         message: authProvider.errorMessage ?? 'Google ile giriş yapılamadı. Lütfen daha sonra tekrar deneyin.',
       );
     }
-    // Başarılı olursa AuthWrapper isLoggedIn=true olduğunda otomatik geçiş yapar
   }
 
   void _showEmailVerificationDialog(BuildContext context) {

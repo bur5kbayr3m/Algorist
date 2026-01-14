@@ -6,7 +6,6 @@ import '../services/portfolio_service.dart';
 import '../theme/app_colors.dart';
 import '../widgets/app_bottom_navigation.dart';
 import '../widgets/offline_mode_banner.dart';
-import '../widgets/loading_widgets.dart';
 
 class AnalyticsScreen extends StatefulWidget {
   const AnalyticsScreen({super.key});
@@ -61,10 +60,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen>
           appBar: AppBar(
             backgroundColor: AppColors.backgroundDark,
             elevation: 0,
-            leading: IconButton(
-              icon: const Icon(Icons.arrow_back_ios_rounded, color: Colors.white),
-              onPressed: () => Navigator.pop(context, 'openDrawer'),
-            ),
+            automaticallyImplyLeading: false,
             title: Text(
               'Analizler',
               style: GoogleFonts.manrope(

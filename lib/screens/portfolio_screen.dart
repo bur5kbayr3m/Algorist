@@ -4,11 +4,13 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/portfolio_service.dart';
 import '../services/database_service.dart';
+import '../services/yahoo_finance_service.dart';
 import '../theme/app_colors.dart';
 import '../utils/app_logger.dart';
 import 'add_asset_screen.dart';
 import 'analytics_screen.dart';
 import 'markets_screen.dart';
+import 'market_asset_detail_screen.dart';
 import 'dashboard_screen.dart';
 import 'edit_portfolio_screen.dart';
 import 'asset_detail_screen.dart';
@@ -191,7 +193,10 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
                     builder: (context) => const EditPortfolioScreen(),
                   ),
                 );
-                if (result == true) {
+                if (result == true && mounted) {
+                  setState(() {
+                    _isLoading = true;
+                  });
                   await _loadUserAssets();
                 }
               },
@@ -998,6 +1003,7 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
     final nameRaw = asset['name'] as String;
     final quantity = asset['quantity'] as num?;
     final totalCost = (asset['totalCost'] as num?)?.toDouble() ?? 0.0;
+    final purchasePrice = (asset['purchasePrice'] as num?)?.toDouble() ?? 0.0;
 
     // Kar/Zarar bilgisini parse et
     String name = nameRaw;
@@ -1048,14 +1054,41 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
         iconBg = AppColors.greenBg;
         iconColor = const Color(0xFF34D399); // green-400
     }
+    
     return InkWell(
-      onTap: () {
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => AssetDetailScreen(asset: asset),
-          ),
-        );
+      onTap: () async {
+        if (type == 'Hisse') {
+          // Hisse için MarketAssetDetailScreen'e git
+          final prefs = await SharedPreferences.getInstance();
+          final userEmail = prefs.getString('user_email') ?? '';
+          
+          if (mounted) {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => MarketAssetDetailScreen(
+                  marketItem: MarketItem(
+                    symbol: name,
+                    name: name,
+                    category: 'Hisse',
+                    price: purchasePrice,
+                    change: 0.0,
+                    changePercent: 0.0,
+                  ),
+                  userEmail: userEmail,
+                ),
+              ),
+            );
+          }
+        } else {
+          // Diğer varlıklar için AssetDetailScreen'e git
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => AssetDetailScreen(asset: asset),
+            ),
+          );
+        }
       },
       borderRadius: BorderRadius.circular(12),
       child: Container(
@@ -1077,78 +1110,187 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
             const SizedBox(width: 16),
             // Content
             Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Expanded(
-                        child: Text(
-                          name,
-                          style: GoogleFonts.manrope(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                            color: AppColors.textMainDark,
-                          ),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                      Text(
-                        '₺${totalCost.toStringAsFixed(2)}',
-                        style: GoogleFonts.manrope(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                          color: AppColors.textMainDark,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 4),
-                  Row(
-                    children: [
-                      Text(
-                        '$type${quantity != null ? ' • ${quantity.toStringAsFixed(quantity.truncateToDouble() == quantity ? 0 : 2)}' : ''}',
-                        style: GoogleFonts.manrope(
-                          fontSize: 14,
-                          color: AppColors.textSecondaryDark,
-                        ),
-                      ),
-                      if (profitLossPercent != null) ...[
-                        const SizedBox(width: 8),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 2,
-                          ),
-                          decoration: BoxDecoration(
-                            color:
-                                (profitLossPercent >= 0
-                                        ? AppColors.positiveDark
-                                        : AppColors.negativeDark)
-                                    .withOpacity(0.15),
-                            borderRadius: BorderRadius.circular(4),
-                          ),
-                          child: Text(
-                            '${profitLossPercent >= 0 ? '+' : ''}${profitLossPercent.toStringAsFixed(2)}%',
-                            style: GoogleFonts.manrope(
-                              fontSize: 12,
-                              fontWeight: FontWeight.bold,
-                              color: profitLossPercent >= 0
-                                  ? AppColors.positiveDark
-                                  : AppColors.negativeDark,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
-                ],
-              ),
+              child: type == 'Hisse' && quantity != null && purchasePrice > 0
+                  ? _buildStockAssetContent(name, type, quantity, totalCost, purchasePrice)
+                  : _buildRegularAssetContent(name, type, quantity, totalCost, profitLossPercent),
             ),
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildStockAssetContent(String name, String type, num quantity, double totalCost, double purchasePrice) {
+    return FutureBuilder<Map<String, dynamic>?>(
+      future: YahooFinanceService.instance.getQuote('$name.IS'),
+      builder: (context, snapshot) {
+        double? currentPrice;
+        double? profitLoss;
+        double? profitLossPercent;
+
+        if (snapshot.hasData && snapshot.data != null) {
+          currentPrice = snapshot.data!['price']?.toDouble();
+          if (currentPrice != null && purchasePrice > 0) {
+            final currentTotal = currentPrice * quantity.toDouble();
+            profitLoss = currentTotal - totalCost;
+            profitLossPercent = (profitLoss / totalCost) * 100;
+          }
+        }
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Expanded(
+                  child: Text(
+                    name,
+                    style: GoogleFonts.manrope(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: AppColors.textMainDark,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Text(
+                      '₺${totalCost.toStringAsFixed(2)}',
+                      style: GoogleFonts.manrope(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: AppColors.textMainDark,
+                      ),
+                    ),
+                    if (currentPrice != null) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        'Güncel: ₺${(currentPrice * quantity.toDouble()).toStringAsFixed(2)}',
+                        style: GoogleFonts.manrope(
+                          fontSize: 12,
+                          color: AppColors.textSecondaryDark,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Row(
+              children: [
+                Text(
+                  '$type • ${quantity.toStringAsFixed(quantity.truncateToDouble() == quantity ? 0 : 2)}',
+                  style: GoogleFonts.manrope(
+                    fontSize: 14,
+                    color: AppColors.textSecondaryDark,
+                  ),
+                ),
+                if (profitLossPercent != null && profitLoss != null) ...[
+                  const SizedBox(width: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 2,
+                    ),
+                    decoration: BoxDecoration(
+                      color: (profitLoss >= 0
+                              ? AppColors.positiveDark
+                              : AppColors.negativeDark)
+                          .withOpacity(0.15),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Text(
+                      '${profitLoss >= 0 ? '+' : ''}₺${profitLoss.toStringAsFixed(2)} (${profitLossPercent >= 0 ? '+' : ''}${profitLossPercent.toStringAsFixed(2)}%)',
+                      style: GoogleFonts.manrope(
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                        color: profitLoss >= 0
+                            ? AppColors.positiveDark
+                            : AppColors.negativeDark,
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildRegularAssetContent(String name, String type, num? quantity, double totalCost, double? profitLossPercent) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Expanded(
+              child: Text(
+                name,
+                style: GoogleFonts.manrope(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: AppColors.textMainDark,
+                ),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            Text(
+              '₺${totalCost.toStringAsFixed(2)}',
+              style: GoogleFonts.manrope(
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+                color: AppColors.textMainDark,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 4),
+        Row(
+          children: [
+            Text(
+              '$type${quantity != null ? ' • ${quantity.toStringAsFixed(quantity.truncateToDouble() == quantity ? 0 : 2)}' : ''}',
+              style: GoogleFonts.manrope(
+                fontSize: 14,
+                color: AppColors.textSecondaryDark,
+              ),
+            ),
+            if (profitLossPercent != null) ...[
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 8,
+                  vertical: 2,
+                ),
+                decoration: BoxDecoration(
+                  color:
+                      (profitLossPercent >= 0
+                              ? AppColors.positiveDark
+                              : AppColors.negativeDark)
+                          .withOpacity(0.15),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: Text(
+                  '${profitLossPercent >= 0 ? '+' : ''}${profitLossPercent.toStringAsFixed(2)}%',
+                  style: GoogleFonts.manrope(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color: profitLossPercent >= 0
+                        ? AppColors.positiveDark
+                        : AppColors.negativeDark,
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ],
     );
   }
 
@@ -1277,7 +1419,7 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
                     );
                   }),
                   _buildDrawerItem(Icons.analytics, 'Analizler', () {
-                    _navigateFromDrawer(context, AnalyticsScreen());
+                    _navigateFromDrawer(context, const AnalyticsScreen());
                   }),
                   _buildDrawerItem(Icons.trending_up, 'Piyasalar', () {
                     if (_currentUserEmail != null) {

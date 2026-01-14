@@ -345,10 +345,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           appBar: AppBar(
             backgroundColor: AppColors.surfaceDark,
             elevation: 0,
-            leading: IconButton(
-              icon: Icon(Icons.arrow_back, color: AppColors.textMainDark),
-              onPressed: () => Navigator.pop(context, 'openDrawer'),
-            ),
+            automaticallyImplyLeading: false,
             title: Text(
               'Profil',
               style: GoogleFonts.manrope(
