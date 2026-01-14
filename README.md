@@ -62,11 +62,28 @@
 - ✅ Kayıt Ekranı (Register)
 - ✅ Dashboard
 - ✅ Portföy Ekranı
-- ✅ Varlık Ekleme Ekranı
+- ✅ Varlık Ekleme Ekranı (hisse seçim modalı ile)
 - ✅ İşlem Geçmişi Ekranı
 - ✅ Profil Ekranı
 - ✅ Email Doğrulama Ekranı
 - ✅ Şifre Sıfırlama Ekranı
+- ✅ Piyasalar Ekranı (gerçek zamanlı Yahoo Finance verileri)
+- ✅ Piyasa Varlık Detay Ekranı (4 grafik tipi)
+- ✅ Analiz Ekranı
+
+### 📊 Grafikler & Görselleştirme
+- ✅ Portföy dağılımı (Pie Chart)
+- ✅ Çizgi grafik (Line Chart)
+- ✅ Alan grafik (Area Chart)
+- ✅ Mum grafik (Candlestick Chart)
+- ✅ Çubuk grafik (Bar Chart)
+- ✅ Tarihsel veri gösterimi (gün, hafta, ay, 3 ay, yıl, tümü)
+
+### 🌐 API Entegrasyonları
+- ✅ Yahoo Finance API - BIST hisse verileri
+- ✅ Gerçek zamanlı fiyat çekme
+- ✅ Tarihsel veri çekme
+- ✅ 30 saniyede bir otomatik güncelleme
 
 ---
 
@@ -82,7 +99,9 @@
 - **flutter_local_notifications** 19.5.0
 - **mailer** 6.6.0
 - **image_picker** profil fotoğrafı
-- **fl_chart** grafikler
+- **fl_chart** 0.69.0 grafikler
+- **http** 1.2.0 API istekleri
+- **Yahoo Finance API** gerçek zamanlı BIST verileri
 
 ### Android Konfigürasyonu
 - Core Library Desugaring aktif (Java 8+ API desteği)
@@ -94,12 +113,14 @@
 
 ## 📋 GELECEK PLANLAR
 
-- [ ] API entegrasyonu (canlı fiyat verileri)
+- [x] ~~API entegrasyonu (canlı fiyat verileri)~~ ✅ Yahoo Finance ile tamamlandı
+- [x] ~~Daha fazla grafik türü~~ ✅ 4 grafik tipi eklendi
 - [ ] Widget sıralama özelliği
-- [ ] Daha fazla grafik türü
 - [ ] Portföy performans analizi
 - [ ] Hedef belirleme özelliği
 - [ ] Export/Import özelliği
+- [ ] Daha fazla borsa eklenmesi (kripto, döviz, emtia)
+- [ ] Fiyat alarmları
 
 ---
 
@@ -117,15 +138,41 @@ flutter run
 
 ## 📝 Son Güncelleme
 
-**Tarih:** 2 Aralık 2025
+**Tarih:** 15 Ocak 2026
 
 **Son Değişiklikler:**
-- Tüm `print()` ifadeleri `debugPrint()` ile değiştirildi (122 adet)
-- Kullanılmayan değişkenler temizlendi
-- IDE uyarıları 0'a indirildi
-- Email doğrulama popup'ları indigo temasıyla güncellendi
-- Profil tercih switch'leri aktif hale getirildi
-- Widget tasarımları modernize edildi
+
+### 📈 Piyasalar & Gerçek Zamanlı Veri
+- **Yahoo Finance API entegrasyonu** - Gerçek zamanlı BIST hisse verileri
+- **4 farklı grafik tipi** eklendi: Çizgi (Line), Alan (Area), Mum (Candlestick), Çubuk (Bar)
+- Piyasalar ana sayfasında **3 hisse** gösterimi
+- BIST 100 modalında **17 hisse** gösterimi (+ butonu ile)
+- **30 saniyede bir otomatik güncelleme** sistemi
+
+### 💰 Portföy İyileştirmeleri
+- Hisseler için **gerçek zamanlı kar/zarar** hesaplama
+- Yahoo Finance üzerinden güncel fiyat çekme
+- Portföy silme işlemi düzeltildi (setState ile)
+- Hisse kartlarında anlık fiyat ve kar/zarar gösterimi
+
+### 🎯 Varlık Ekleme
+- Hisse eklerken **arama ve seçim modalı** eklendi
+- 20 BIST hissesi listesi
+- Gerçek zamanlı fiyat ve değişim bilgisi
+- Arama özelliği
+
+### 🎨 Navigasyon & UI İyileştirmeleri
+- Analiz ve Profil ekranlarından **geri butonları kaldırıldı**
+- Alt navigasyon `pushAndRemoveUntil` ile güncellendi
+- Login ekranından PortfolioScreen'e yönlendirme eklendi
+- Grafiklerde tarihsel veri gösterimi (gün, hafta, ay, 3 ay, yıl, tümü)
+
+### 📦 Paketler
+- **fl_chart 0.69.0** paketi eklendi
+- **http 1.2.0** ile API istekleri
+- **yahoo_finance_service** yeni servis oluşturuldu
+
+**Toplam:** +1446 satır eklendi, -439 satır silindi
 
 ---
 
