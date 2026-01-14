@@ -4,6 +4,8 @@ import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
 import '../services/portfolio_service.dart';
 import '../theme/app_colors.dart';
+import '../widgets/error_dialog.dart';
+import '../widgets/success_dialog.dart';
 
 class EditPortfolioScreen extends StatefulWidget {
   const EditPortfolioScreen({super.key});
@@ -104,27 +106,22 @@ class _EditPortfolioScreenState extends State<EditPortfolioScreen> {
       try {
         await PortfolioService.instance.deleteAsset(assetId);
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                'Varlık başarıyla silindi',
-                style: GoogleFonts.manrope(),
-              ),
-              backgroundColor: AppColors.positiveDark,
-            ),
+          SuccessDialog.show(
+            context,
+            title: 'Başarılı',
+            message: 'Varlık başarıyla silindi',
+            onDismiss: () {
+              // Varlık silme tamamlandı
+            },
           );
           await _loadUserAssets();
         }
       } catch (e) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                'Varlık silinirken hata oluştu: $e',
-                style: GoogleFonts.manrope(),
-              ),
-              backgroundColor: AppColors.negativeDark,
-            ),
+          ErrorDialog.show(
+            context,
+            title: 'Hata',
+            message: 'Varlık silinirken hata oluştu: $e',
           );
         }
       }
@@ -254,27 +251,22 @@ class _EditPortfolioScreenState extends State<EditPortfolioScreen> {
         );
 
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                'Miktar başarıyla güncellendi',
-                style: GoogleFonts.manrope(),
-              ),
-              backgroundColor: AppColors.positiveDark,
-            ),
+          SuccessDialog.show(
+            context,
+            title: 'Başarılı',
+            message: 'Miktar başarıyla güncellendi',
+            onDismiss: () {
+              // Miktar güncelleme tamamlandı
+            },
           );
           await _loadUserAssets();
         }
       } catch (e) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                'Miktar güncellenirken hata oluştu: $e',
-                style: GoogleFonts.manrope(),
-              ),
-              backgroundColor: AppColors.negativeDark,
-            ),
+          ErrorDialog.show(
+            context,
+            title: 'Hata',
+            message: 'Miktar güncellenirken hata oluştu: $e',
           );
         }
       }
@@ -430,14 +422,10 @@ class _EditPortfolioScreenState extends State<EditPortfolioScreen> {
                   'price': sellPrice,
                 });
               } else {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text(
-                      'Geçersiz miktar veya fiyat',
-                      style: GoogleFonts.manrope(),
-                    ),
-                    backgroundColor: AppColors.negativeDark,
-                  ),
+                ErrorDialog.show(
+                  context,
+                  title: 'Hata',
+                  message: 'Geçersiz miktar veya fiyat',
                 );
               }
             },
@@ -518,31 +506,23 @@ class _EditPortfolioScreenState extends State<EditPortfolioScreen> {
                 ? '+₺${profitLoss.toStringAsFixed(2)} (${profitLossPercent >= 0 ? '+' : ''}${profitLossPercent.toStringAsFixed(2)}%)'
                 : '-₺${profitLoss.abs().toStringAsFixed(2)} (${profitLossPercent.toStringAsFixed(2)}%)';
 
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text(
-                  'Satış tamamlandı: $profitLossText',
-                  style: GoogleFonts.manrope(),
-                ),
-                backgroundColor: profitLoss >= 0
-                    ? AppColors.positiveDark
-                    : AppColors.negativeDark,
-                duration: const Duration(seconds: 4),
-              ),
+            SuccessDialog.show(
+              context,
+              title: 'Başarılı',
+              message: 'Satış tamamlandı: $profitLossText',
+              onDismiss: () {
+                // Satış tamamlandı
+              },
             );
             await _loadUserAssets();
           }
         }
       } catch (e) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                'Satış sırasında hata oluştu: $e',
-                style: GoogleFonts.manrope(),
-              ),
-              backgroundColor: AppColors.negativeDark,
-            ),
+          ErrorDialog.show(
+            context,
+            title: 'Hata',
+            message: 'Satış sırasında hata oluştu: $e',
           );
         }
       }

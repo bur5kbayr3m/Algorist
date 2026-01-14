@@ -96,7 +96,7 @@ class _GlobalSearchBarState extends State<GlobalSearchBar> {
 }
 
 class SearchHistory {
-  static const String _key = 'search_history';
+
 
   static Future<List<String>> getHistory() async {
     // TODO: SharedPreferences implementation

@@ -233,8 +233,12 @@ class DatabaseService {
     try {
       // Cache'de var mı kontrol et
       if (_userCache.containsKey(email)) {
-        AppLogger.log('💾 User found in cache: $email');
-        return _userCache[email];
+        final cached = _userCache[email];
+        if (cached != null) {
+          AppLogger.log('💾 User found in cache: $email');
+          return cached;
+        }
+        // Null cache'de varsa, yeniden veritabanından sor (refresh)
       }
 
       final db = await database;
@@ -247,11 +251,12 @@ class DatabaseService {
       );
 
       if (results.isEmpty) {
-        _userCache[email] = null;
+        // Null cache'leme yapma - her zaman DB'den sor
+        AppLogger.log('❌ User not found: $email');
         return null;
       }
 
-      // Cache'e ekle
+      // Sadece found users'ı cache'le
       _userCache[email] = results.first;
       AppLogger.log('✅ User found and cached: $email');
       return results.first;

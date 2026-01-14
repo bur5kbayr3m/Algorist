@@ -53,24 +53,6 @@ class AuthService {
         return false; // Kullanıcı zaten mevcut
       }
 
-      // İsim kontrolü
-      if (fullName.isNotEmpty) {
-        final userByName = await _db.getUserByFullName(fullName);
-        if (userByName != null) {
-          AppLogger.log('⚠️ Full name already exists: $fullName');
-          throw Exception('Bu isim zaten kullanılıyor');
-        }
-      }
-
-      // Telefon kontrolü
-      if (phone != null && phone.isNotEmpty) {
-        final userByPhone = await _db.getUserByPhone(phone);
-        if (userByPhone != null) {
-          AppLogger.log('⚠️ Phone already exists: $phone');
-          throw Exception('Bu telefon numarası zaten kullanılıyor');
-        }
-      }
-
       // BCrypt ile şifreyi hashle (salt otomatik eklenir)
       final hashedPassword = _hashPassword(password);
 
@@ -228,6 +210,23 @@ class AuthService {
     } catch (e) {
       AppLogger.log('Get user data error: $e');
       return null;
+    }
+  }
+
+  /// Kullanıcı profilini günceller
+  Future<bool> updateProfile({
+    required String email,
+    String? fullName,
+    String? phone,
+  }) async {
+    try {
+      AppLogger.log('📝 Updating profile for: $email');
+      await _db.updateUserProfile(email, fullName: fullName, phone: phone);
+      AppLogger.log('✅ Profile updated successfully');
+      return true;
+    } catch (e) {
+      AppLogger.log('❌ Update profile error: $e');
+      return false;
     }
   }
 

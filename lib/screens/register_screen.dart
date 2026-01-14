@@ -8,6 +8,8 @@ import '../login_screen.dart';
 import '../services/sms_service.dart';
 import 'otp_verification_screen.dart';
 import '../theme/app_colors.dart';
+import '../widgets/success_dialog.dart';
+import '../widgets/error_dialog.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -40,21 +42,19 @@ class _RegisterScreenState extends State<RegisterScreen> {
     if (!_formKey.currentState!.validate()) return;
 
     if (_passwordController.text != _confirmPasswordController.text) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Şifreler eşleşmiyor'),
-          backgroundColor: Colors.red,
-        ),
+      ErrorDialog.show(
+        context,
+        title: 'Hata',
+        message: 'Şifreler eşleşmiyor',
       );
       return;
     }
 
     if (_completePhoneNumber.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Lütfen telefon numaranızı girin'),
-          backgroundColor: Colors.red,
-        ),
+      ErrorDialog.show(
+        context,
+        title: 'Hata',
+        message: 'Lütfen telefon numaranızı girin',
       );
       return;
     }
@@ -65,11 +65,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
       if (!smsSent) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('SMS gönderilemedi'),
-              backgroundColor: Colors.red,
-            ),
+          ErrorDialog.show(
+            context,
+            title: 'Hata',
+            message: 'SMS gönderilemedi',
           );
         }
         return;
@@ -81,10 +80,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
           _completePhoneNumber,
         );
         if (debugOtp != null) {
+          // Debug OTP bilgisini göster
+          final isDarkMode = Theme.of(context).brightness == Brightness.dark;
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text('DEBUG: SMS Kodu = $debugOtp'),
-              backgroundColor: Colors.orange,
+              backgroundColor: isDarkMode ? AppColors.slate700 : AppColors.slate200,
               duration: const Duration(seconds: 5),
             ),
           );
@@ -119,30 +120,31 @@ class _RegisterScreenState extends State<RegisterScreen> {
           );
 
           if (success && mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Kayıt başarılı! Giriş yapabilirsiniz.'),
-                backgroundColor: Colors.green,
-              ),
-            );
-            // Login ekranına dön
-            Navigator.of(context).pushReplacement(
-              MaterialPageRoute(builder: (_) => const LoginScreen()),
+            SuccessDialog.show(
+              context,
+              title: 'Kayıt Başarılı!',
+              message: 'Hesabınız başarıyla oluşturulmuştur. Şimdi giriş yapabilirsiniz.',
+              onDismiss: () {
+                Navigator.of(context).pushReplacement(
+                  MaterialPageRoute(builder: (_) => const LoginScreen()),
+                );
+              },
             );
           } else if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text(authProvider.errorMessage ?? 'Kayıt başarısız'),
-                backgroundColor: Colors.red,
-              ),
+            ErrorDialog.show(
+              context,
+              title: 'Kayıt Başarısız',
+              message: authProvider.errorMessage ?? 'Kayıt işlemi tamamlanamadı. Lütfen daha sonra tekrar deneyiniz.',
             );
           }
         }
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Hata: $e'), backgroundColor: Colors.red),
+        ErrorDialog.show(
+          context,
+          title: 'Hata',
+          message: 'Bir hata oluştu: $e',
         );
       }
     }

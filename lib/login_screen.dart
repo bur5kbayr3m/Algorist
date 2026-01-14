@@ -4,11 +4,13 @@ import 'package:flutter_svg/flutter_svg.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'providers/auth_provider.dart';
-import 'screens/portfolio_screen.dart';
 import 'screens/register_screen.dart';
 import 'screens/forgot_password_screen.dart';
+import 'screens/email_verification_screen.dart';
 import 'services/biometric_service.dart';
+import 'services/email_verification_service.dart';
 import 'theme/app_colors.dart';
+import 'widgets/error_dialog.dart';
 
 // --- GOOGLE ICON SVG ---
 const String googleIconSvg =
@@ -55,13 +57,10 @@ class _LoginScreenState extends State<LoginScreen> {
 
     if (email == null || email.isEmpty) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Biyometrik giriş için önce normal giriş yapmalısınız',
-            ),
-            backgroundColor: Colors.orange,
-          ),
+        ErrorDialog.show(
+          context,
+          title: 'Uyarı',
+          message: 'Biyometrik giriş için önce normal giriş yapmalısınız',
         );
       }
       return;
@@ -73,21 +72,17 @@ class _LoginScreenState extends State<LoginScreen> {
     );
 
     if (authenticated && mounted) {
-      // Otomatik giriş yap
+      // Otomatik giriş yap - AuthWrapper otomatik olarak PortfolioScreen'e yönlendirecek
       final success = await authProvider.loginWithEmail(email);
 
-      if (success && mounted) {
-        Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (_) => const PortfolioScreen()),
-        );
-      } else if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(authProvider.errorMessage ?? 'Giriş başarısız'),
-            backgroundColor: Colors.red,
-          ),
+      if (!success && mounted) {
+        ErrorDialog.show(
+          context,
+          title: 'Biyometrik Giriş Başarısız',
+          message: authProvider.errorMessage ?? 'Biyometrik giriş yapılamadı. Lütfen daha sonra tekrar deneyin.',
         );
       }
+      // Başarılı olursa AuthWrapper isLoggedIn=true olduğunda otomatik geçiş yapar
     }
   }
 
@@ -117,16 +112,12 @@ class _LoginScreenState extends State<LoginScreen> {
           _emailController.text.trim(),
         );
       }
-
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => const PortfolioScreen()),
-      );
+      // AuthWrapper isLoggedIn=true olduğunda otomatik olarak PortfolioScreen'e geçecek
     } else if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(authProvider.errorMessage ?? 'Giriş başarısız'),
-          backgroundColor: Colors.red,
-        ),
+      ErrorDialog.show(
+        context,
+        title: 'Giriş Başarısız',
+        message: authProvider.errorMessage ?? 'E-posta veya şifre hatalı. Lütfen kontrol ederek tekrar deneyin.',
       );
     }
   }
@@ -136,18 +127,121 @@ class _LoginScreenState extends State<LoginScreen> {
 
     final success = await authProvider.signInWithGoogle();
 
-    if (success && mounted) {
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => const PortfolioScreen()),
-      );
-    } else if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(authProvider.errorMessage ?? 'Google girişi başarısız'),
-          backgroundColor: Colors.red,
-        ),
+    if (!success && mounted) {
+      ErrorDialog.show(
+        context,
+        title: 'Google Girişi Başarısız',
+        message: authProvider.errorMessage ?? 'Google ile giriş yapılamadı. Lütfen daha sonra tekrar deneyin.',
       );
     }
+    // Başarılı olursa AuthWrapper isLoggedIn=true olduğunda otomatik geçiş yapar
+  }
+
+  void _showEmailVerificationDialog(BuildContext context) {
+    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
+    final emailController = TextEditingController(text: _emailController.text);
+
+    showDialog(
+      context: context,
+      builder: (BuildContext dialogContext) {
+        return AlertDialog(
+          backgroundColor: isDarkMode ? AppColors.slate900 : Colors.white,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+          title: Text(
+            'Email Doğrulaması',
+            style: GoogleFonts.manrope(
+              fontSize: 18,
+              fontWeight: FontWeight.w600,
+              color: isDarkMode ? Colors.white : AppColors.slate900,
+            ),
+          ),
+          content: TextField(
+            controller: emailController,
+            style: TextStyle(
+              color: isDarkMode ? Colors.white : AppColors.slate900,
+            ),
+            decoration: InputDecoration(
+              hintText: 'E-posta adresinizi girin',
+              hintStyle: TextStyle(
+                color: isDarkMode ? AppColors.slate400 : AppColors.slate600,
+              ),
+              filled: true,
+              fillColor: isDarkMode
+                  ? AppColors.slate800.withOpacity(0.6)
+                  : Colors.grey[100],
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(8),
+                borderSide: BorderSide(
+                  color: isDarkMode ? AppColors.slate600 : AppColors.slate300,
+                ),
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: Text(
+                'İptal',
+                style: GoogleFonts.manrope(
+                  color: isDarkMode ? AppColors.slate400 : AppColors.slate600,
+                ),
+              ),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                if (emailController.text.trim().isEmpty) {
+                  ErrorDialog.show(
+                    context,
+                    title: 'Hata',
+                    message: 'Lütfen email adresinizi girin',
+                  );
+                  return;
+                }
+
+                // Önce doğrulama kodu gönder
+                final email = emailController.text.trim();
+                final sent = await EmailVerificationService.instance
+                    .sendVerificationCode(email);
+
+                if (!sent) {
+                  if (mounted) {
+                    ErrorDialog.show(
+                      context,
+                      title: 'Hata',
+                      message: 'Doğrulama kodu gönderilemedi',
+                    );
+                  }
+                  return;
+                }
+
+                if (mounted) {
+                  Navigator.pop(dialogContext);
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => EmailVerificationScreen(
+                        email: email,
+                      ),
+                    ),
+                  );
+                }
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primary,
+              ),
+              child: Text(
+                'Devam Et',
+                style: GoogleFonts.manrope(
+                  fontWeight: FontWeight.w600,
+                  color: Colors.white,
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   @override
@@ -502,6 +596,25 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
 
                 const SizedBox(height: 32), // mt-8
+                
+                // --- EMAIL DOĞRULAMA LİNKİ ---
+                TextButton(
+                  onPressed: () {
+                    // Email'i input field'dan al veya dialog'da sor
+                    _showEmailVerificationDialog(context);
+                  },
+                  child: Text(
+                    'Email Doğrulama Gerekli mi?',
+                    style: GoogleFonts.manrope(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.primary,
+                    ),
+                  ),
+                ),
+                
+                const SizedBox(height: 16),
+                
                 // --- KAYIT OL LINK ---
                 RichText(
                   textAlign: TextAlign.center,

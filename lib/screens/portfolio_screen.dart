@@ -1,8 +1,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:provider/provider.dart';
-import '../providers/auth_provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../services/portfolio_service.dart';
 import '../services/database_service.dart';
 import '../theme/app_colors.dart';
@@ -17,10 +16,8 @@ import 'profile_screen.dart';
 import '../widgets/app_bottom_navigation.dart';
 import '../widgets/offline_mode_banner.dart';
 import '../widgets/loading_widgets.dart';
-import '../widgets/refreshable_scroll_view.dart';
-import '../widgets/global_search_bar.dart';
-import '../utils/error_handler.dart';
 import 'transaction_history_screen.dart';
+import '../widgets/success_dialog.dart';
 import 'notifications_screen.dart';
 import 'settings_screen.dart';
 import 'help_screen.dart';
@@ -46,20 +43,39 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    _loadInitialData();
+  }
+
+  String? _currentUserEmail;
+  Map<String, dynamic>? _currentUser;
+
+  Future<void> _loadInitialData() async {
+    // SharedPreferences'tan kullanıcı bilgilerini al
+    final prefs = await SharedPreferences.getInstance();
+    _currentUserEmail = prefs.getString('user_email');
+    
+    // Kullanıcı bilgilerini veritabanından al
+    if (_currentUserEmail != null && _currentUserEmail!.isNotEmpty) {
+      final user = await DatabaseService.instance.getUserByEmail(_currentUserEmail!);
       if (mounted) {
-        _loadUserAssets();
-        _loadWidgetPreferencesSimple();
+        setState(() {
+          _currentUser = user;
+        });
       }
-    });
+    }
+    
+    // Veri yükle
+    _loadUserAssets();
+    _loadWidgetPreferencesSimple();
   }
 
   Future<void> _loadWidgetPreferencesSimple() async {
     try {
-      final authProvider = Provider.of<AuthProvider>(context, listen: false);
-      final userEmail = authProvider.currentUserEmail;
+      // Provider'dan değil, SharedPreferences'tan email al
+      final prefs = await SharedPreferences.getInstance();
+      final userEmail = prefs.getString('user_email') ?? '';
 
-      if (userEmail != null && mounted) {
+      if (userEmail.isNotEmpty && mounted) {
         final preferences = await DatabaseService.instance
             .loadWidgetPreferences(userEmail);
         if (mounted) {
@@ -75,10 +91,11 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
   }
 
   Future<void> _loadUserAssets() async {
-    final authProvider = Provider.of<AuthProvider>(context, listen: false);
-    final userEmail = authProvider.currentUserEmail;
+    // Provider'dan değil, SharedPreferences'tan email al (Provider tree sorununu çöz)
+    final prefs = await SharedPreferences.getInstance();
+    final userEmail = prefs.getString('user_email') ?? '';
 
-    if (userEmail != null) {
+    if (userEmail.isNotEmpty) {
       final assets = await PortfolioService.instance.getUserAssets(userEmail);
       setState(() {
         _userAssets = assets;
@@ -94,10 +111,11 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
   // Widget preferences _loadWidgetPreferencesSimple metodunda yükleniyor
 
   Future<void> _saveWidgetPreferences() async {
-    final authProvider = Provider.of<AuthProvider>(context, listen: false);
-    final userEmail = authProvider.currentUserEmail;
+    // Provider'dan değil, SharedPreferences'tan email al
+    final prefs = await SharedPreferences.getInstance();
+    final userEmail = prefs.getString('user_email') ?? '';
 
-    if (userEmail != null) {
+    if (userEmail.isNotEmpty) {
       await DatabaseService.instance.saveWidgetPreferences(
         userEmail,
         _enabledWidgets,
@@ -372,28 +390,136 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
         return 'Tüm Zamanlar';
     }
   }
+  void _showPeriodSelector() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      barrierColor: Colors.black.withOpacity(0.7),
+      builder: (context) => Container(
+        decoration: BoxDecoration(
+          color: const Color(0xFF1F2937),
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+          border: Border.all(
+            color: AppColors.borderDark.withOpacity(0.3),
+            width: 1,
+          ),
+        ),
+        padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: AppColors.textSecondaryDark.withOpacity(0.3),
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(height: 20),
+            Text(
+              'Performans Dönemi Seçin',
+              style: GoogleFonts.manrope(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: AppColors.textMainDark,
+              ),
+            ),
+            const SizedBox(height: 20),
+            _buildPeriodOption(TimePeriod.daily, 'Bugün', Icons.today),
+            _buildPeriodOption(TimePeriod.weekly, 'Bu Hafta', Icons.date_range),
+            _buildPeriodOption(
+              TimePeriod.monthly,
+              'Bu Ay',
+              Icons.calendar_month,
+            ),
+            _buildPeriodOption(
+              TimePeriod.allTime,
+              'Tüm Zamanlar',
+              Icons.all_inclusive,
+            ),
+            const SizedBox(height: 12),
+          ],
+        ),
+      ),
+    );
+  }
 
-  void _cyclePeriod() {
-    setState(() {
-      switch (_selectedPeriod) {
-        case TimePeriod.daily:
-          _selectedPeriod = TimePeriod.weekly;
-          break;
-        case TimePeriod.weekly:
-          _selectedPeriod = TimePeriod.monthly;
-          break;
-        case TimePeriod.monthly:
-          _selectedPeriod = TimePeriod.allTime;
-          break;
-        case TimePeriod.allTime:
-          _selectedPeriod = TimePeriod.daily;
-          break;
-      }
-    });
+  Widget _buildPeriodOption(TimePeriod period, String title, IconData icon) {
+    final isSelected = _selectedPeriod == period;
+
+    return InkWell(
+      onTap: () {
+        setState(() => _selectedPeriod = period);
+        Navigator.pop(context);
+      },
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 8),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: isSelected
+              ? AppColors.primary.withOpacity(0.15)
+              : const Color(0xFF131022),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: isSelected
+                ? AppColors.primary.withOpacity(0.5)
+                : AppColors.borderDark.withOpacity(0.5),
+          ),
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: isSelected
+                    ? AppColors.primary.withOpacity(0.2)
+                    : AppColors.grayBg,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(
+                icon,
+                color: isSelected
+                    ? AppColors.primary
+                    : AppColors.textSecondaryDark,
+                size: 22,
+              ),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Text(
+                title,
+                style: GoogleFonts.manrope(
+                  fontSize: 16,
+                  fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                  color: isSelected
+                      ? AppColors.primary
+                      : AppColors.textMainDark,
+                ),
+              ),
+            ),
+            if (isSelected)
+              Container(
+                padding: const EdgeInsets.all(4),
+                decoration: BoxDecoration(
+                  color: AppColors.primary,
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.check, color: Colors.white, size: 16),
+              ),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
+    return _buildPortfolioUI();
+  }
+
+  Widget _buildPortfolioUI() {
     return Stack(
       children: [
         Scaffold(
@@ -468,7 +594,8 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
           ),
           bottomNavigationBar: const AppBottomNavigation(currentIndex: 0),
           floatingActionButton: _buildFAB(),
-          floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
+          floatingActionButtonLocation:
+              FloatingActionButtonLocation.centerDocked,
         ),
         const OfflineModeBanner(),
       ],
@@ -477,14 +604,18 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
 
   Widget _buildAppBar() {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 12),
       child: Row(
         children: [
           // Hamburger Menu
           Container(
             decoration: BoxDecoration(
-              color: AppColors.cardDark,
+              color: const Color(0xFF1F2937).withOpacity(0.8),
               borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: AppColors.primary.withOpacity(0.1),
+                width: 1,
+              ),
             ),
             child: IconButton(
               icon: const Icon(
@@ -498,50 +629,73 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
             ),
           ),
           const Spacer(),
-          // Logo
+          // Logo with gradient background
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
             decoration: BoxDecoration(
               gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
                 colors: [
-                  AppColors.primary.withOpacity(0.1),
-                  AppColors.primary.withOpacity(0.05),
+                  AppColors.primary.withOpacity(0.15),
+                  AppColors.primary.withOpacity(0.08),
                 ],
               ),
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: AppColors.primary.withOpacity(0.2)),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: AppColors.primary.withOpacity(0.2),
+                width: 1,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: AppColors.primary.withOpacity(0.1),
+                  blurRadius: 8,
+                  offset: const Offset(0, 4),
+                ),
+              ],
             ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(
-                  Icons.auto_graph_rounded,
-                  color: AppColors.primary,
-                  size: 20,
+                Container(
+                  padding: const EdgeInsets.all(6),
+                  decoration: BoxDecoration(
+                    color: AppColors.primary.withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Icon(
+                    Icons.auto_graph_rounded,
+                    color: AppColors.primary,
+                    size: 18,
+                  ),
                 ),
                 const SizedBox(width: 8),
                 Text(
                   'Algorist',
                   style: GoogleFonts.manrope(
-                    fontSize: 18,
+                    fontSize: 16,
                     fontWeight: FontWeight.bold,
                     color: AppColors.textMainDark,
+                    letterSpacing: 0.5,
                   ),
                 ),
               ],
             ),
           ),
           const Spacer(),
-          // Edit Button
+          // Edit Button with smooth transition
           Container(
             decoration: BoxDecoration(
               color: _isEditMode
                   ? AppColors.primary.withOpacity(0.15)
-                  : AppColors.cardDark,
+                  : const Color(0xFF1F2937).withOpacity(0.8),
               borderRadius: BorderRadius.circular(12),
-              border: _isEditMode
-                  ? Border.all(color: AppColors.primary.withOpacity(0.3))
-                  : null,
+              border: Border.all(
+                color: _isEditMode
+                    ? AppColors.primary.withOpacity(0.3)
+                    : AppColors.primary.withOpacity(0.1),
+                width: 1,
+              ),
             ),
             child: IconButton(
               icon: Icon(
@@ -562,8 +716,7 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
   }
 
   Widget _buildHeader() {
-    final authProvider = Provider.of<AuthProvider>(context, listen: false);
-    final currentUser = authProvider.currentUser;
+    final currentUser = _currentUser;
     String userName = 'Kullanıcı';
     if (currentUser != null) {
       if (currentUser['fullName'] != null &&
@@ -629,152 +782,162 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
     final isPositive = periodChange['isPositive'] as bool;
 
     return Container(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
-        gradient: const LinearGradient(
+        gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [Color(0xFF4F46E5), Color(0xFF7C3AED)],
+          colors: [AppColors.primary, AppColors.primary.withOpacity(0.7)],
         ),
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(18),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.primary.withOpacity(0.2),
+            blurRadius: 16,
+            offset: const Offset(0, 8),
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // Subtitle
           Text(
             'Toplam Varlık Değeri',
             style: GoogleFonts.manrope(
-              fontSize: 14,
-              color: Colors.white.withOpacity(0.8),
+              fontSize: 13,
+              color: Colors.white.withOpacity(0.85),
               fontWeight: FontWeight.w500,
+              letterSpacing: 0.5,
             ),
           ),
-          const SizedBox(height: 12),
-          Text(
-            '₺${_formatNumber(totalValue)}',
-            style: GoogleFonts.manrope(
-              fontSize: 36,
-              fontWeight: FontWeight.bold,
-              color: Colors.white,
-              letterSpacing: -1,
-            ),
+          const SizedBox(height: 10),
+
+          // Main amount
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.baseline,
+            textBaseline: TextBaseline.alphabetic,
+            children: [
+              Text(
+                '₺',
+                style: GoogleFonts.manrope(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.white,
+                ),
+              ),
+              const SizedBox(width: 4),
+              Expanded(
+                child: Text(
+                  _formatNumber(totalValue),
+                  style: GoogleFonts.manrope(
+                    fontSize: 42,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                    letterSpacing: -1.5,
+                  ),
+                ),
+              ),
+            ],
           ),
+
           if (hasAssets) ...[
-            const SizedBox(height: 16),
-            // Kar/Zarar satırı
-            Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 8,
-                  ),
-                  decoration: BoxDecoration(
+            const SizedBox(height: 18),
+
+            // Stats row - Period change and count (tıklanabilir)
+            InkWell(
+              onTap: _showPeriodSelector,
+              borderRadius: BorderRadius.circular(12),
+              child: Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
                     color: Colors.white.withOpacity(0.15),
-                    borderRadius: BorderRadius.circular(10),
+                    width: 1,
                   ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(4),
-                        decoration: BoxDecoration(
-                          color: isPositive
-                              ? Colors.green.withOpacity(0.3)
-                              : Colors.red.withOpacity(0.3),
-                          shape: BoxShape.circle,
-                        ),
-                        child: Icon(
-                          isPositive
-                              ? Icons.arrow_upward_rounded
-                              : Icons.arrow_downward_rounded,
-                          color: isPositive
-                              ? Colors.greenAccent
-                              : Colors.redAccent,
-                          size: 14,
-                        ),
+                ),
+                child: Row(
+                  children: [
+                    // Change indicator
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: isPositive
+                            ? Colors.green.withOpacity(0.2)
+                            : Colors.red.withOpacity(0.2),
+                        borderRadius: BorderRadius.circular(10),
                       ),
-                      const SizedBox(width: 8),
-                      Text(
-                        '${isPositive ? '+' : ''}₺${_formatNumber((periodChange['change'] as double).abs())}',
+                      child: Icon(
+                        isPositive
+                            ? Icons.arrow_upward_rounded
+                            : Icons.arrow_downward_rounded,
+                        color: isPositive
+                            ? Colors.greenAccent
+                            : Colors.redAccent,
+                        size: 18,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+
+                    // Change info
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            '${isPositive ? '+' : ''}₺${_formatNumber((periodChange['change'] as double).abs())}',
+                            style: GoogleFonts.manrope(
+                              fontSize: 14,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.white,
+                            ),
+                          ),
+                          Row(
+                            children: [
+                              Text(
+                                '${isPositive ? '+' : ''}${(periodChange['percentage'] as double).toStringAsFixed(2)}% (${_getPeriodLabel()})',
+                                style: GoogleFonts.manrope(
+                                  fontSize: 11,
+                                  color: Colors.white.withOpacity(0.7),
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                              const SizedBox(width: 4),
+                              Icon(
+                                Icons.keyboard_arrow_down_rounded,
+                                color: Colors.white.withOpacity(0.5),
+                                size: 14,
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    // Asset count
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 8,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.15),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        '${_userAssets.length} varlık',
                         style: GoogleFonts.manrope(
-                          fontSize: 15,
-                          fontWeight: FontWeight.bold,
-                          color: isPositive
-                              ? Colors.greenAccent
-                              : Colors.redAccent,
-                        ),
-                      ),
-                      const SizedBox(width: 6),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 6,
-                          vertical: 2,
-                        ),
-                        decoration: BoxDecoration(
-                          color: isPositive
-                              ? Colors.green.withOpacity(0.2)
-                              : Colors.red.withOpacity(0.2),
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        child: Text(
-                          '${isPositive ? '+' : ''}${(periodChange['percentage'] as double).toStringAsFixed(1)}%',
-                          style: GoogleFonts.manrope(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                            color: isPositive
-                                ? Colors.greenAccent
-                                : Colors.redAccent,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 10),
-                // Dönem seçici
-                GestureDetector(
-                  onTap: _cyclePeriod,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 8,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.15),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          _getPeriodLabel(),
-                          style: GoogleFonts.manrope(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                            color: Colors.white,
-                          ),
-                        ),
-                        const SizedBox(width: 4),
-                        const Icon(
-                          Icons.sync_rounded,
-                          size: 14,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
                           color: Colors.white,
+                          letterSpacing: 0.3,
                         ),
-                      ],
+                      ),
                     ),
-                  ),
+                  ],
                 ),
-              ],
-            ),
-          ],
-          if (!hasAssets) ...[
-            const SizedBox(height: 12),
-            Text(
-              'Henüz varlık eklenmedi',
-              style: GoogleFonts.manrope(
-                fontSize: 13,
-                color: Colors.white.withOpacity(0.6),
               ),
             ),
           ],
@@ -990,8 +1153,7 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
   }
 
   Widget _buildDrawer() {
-    final authProvider = Provider.of<AuthProvider>(context, listen: false);
-    final currentUser = authProvider.currentUser;
+    final currentUser = _currentUser;
 
     // Email'den kullanıcı adı oluştur
     String userName = 'Kullanıcı';
@@ -1118,16 +1280,10 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
                     _navigateFromDrawer(context, AnalyticsScreen());
                   }),
                   _buildDrawerItem(Icons.trending_up, 'Piyasalar', () {
-                    final authProvider = Provider.of<AuthProvider>(
-                      context,
-                      listen: false,
-                    );
-                    if (authProvider.currentUserEmail != null) {
+                    if (_currentUserEmail != null) {
                       _navigateFromDrawer(
                         context,
-                        MarketsScreen(
-                          userEmail: authProvider.currentUserEmail!,
-                        ),
+                        MarketsScreen(userEmail: _currentUserEmail!),
                       );
                     }
                   }),
@@ -1149,22 +1305,20 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
                     Icons.bug_report,
                     'Debug: Tüm Veriler',
                     () async {
-                      final authProvider = Provider.of<AuthProvider>(
-                        context,
-                        listen: false,
-                      );
                       await DatabaseService.instance.printAllData();
-                      if (authProvider.currentUserEmail != null) {
+                      if (_currentUserEmail != null) {
                         await DatabaseService.instance.printUserData(
-                          authProvider.currentUserEmail!,
+                          _currentUserEmail!,
                         );
                       }
                       if (mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('Veriler terminale yazdırıldı!'),
-                            backgroundColor: AppColors.primary,
-                          ),
+                        SuccessDialog.show(
+                          context,
+                          title: 'Başarılı',
+                          message: 'Veriler terminale yazdırıldı!',
+                          onDismiss: () {
+                            // Debug veri yazdırma tamamlandı
+                          },
                         );
                       }
                     },
@@ -1244,11 +1398,12 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
 
                     // Kullanıcı onayladıysa çıkış yap
                     if (shouldLogout == true && mounted) {
-                      final authProvider = Provider.of<AuthProvider>(
-                        context,
-                        listen: false,
-                      );
-                      await authProvider.logout();
+                      // SharedPreferences'tan kullanıcı bilgilerini temizle
+                      final prefs = await SharedPreferences.getInstance();
+                      await prefs.remove('user_email');
+                      await prefs.remove('isLoggedIn');
+                      await prefs.setBool('isLoggedIn', false);
+                      
                       if (mounted) {
                         Navigator.of(
                           context,
@@ -1374,6 +1529,26 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
               ),
               const SizedBox(width: 12),
               _buildWidgetButton('İstatistikler', Icons.analytics, 'stats'),
+              const SizedBox(width: 12),
+              _buildWidgetButton(
+                'En Çok Kazandıranlar',
+                Icons.emoji_events,
+                'top_gainers',
+              ),
+              const SizedBox(width: 12),
+              _buildWidgetButton('Hedefler', Icons.flag, 'goals'),
+              const SizedBox(width: 12),
+              _buildWidgetButton(
+                'Hızlı İşlemler',
+                Icons.flash_on,
+                'quick_actions',
+              ),
+              const SizedBox(width: 12),
+              _buildWidgetButton(
+                'Piyasa Özeti',
+                Icons.public,
+                'market_summary',
+              ),
             ],
           ),
         ),
@@ -1451,6 +1626,22 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
           break;
         case 'stats':
           widgets.add(_buildStatsWidget());
+          widgets.add(const SizedBox(height: 24));
+          break;
+        case 'top_gainers':
+          widgets.add(_buildTopGainersWidget());
+          widgets.add(const SizedBox(height: 24));
+          break;
+        case 'goals':
+          widgets.add(_buildGoalsWidget());
+          widgets.add(const SizedBox(height: 24));
+          break;
+        case 'quick_actions':
+          widgets.add(_buildQuickActionsWidget());
+          widgets.add(const SizedBox(height: 24));
+          break;
+        case 'market_summary':
+          widgets.add(_buildMarketSummaryWidget());
           widgets.add(const SizedBox(height: 24));
           break;
       }
@@ -1951,45 +2142,635 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
     );
   }
 
-  void _showCustomSnackBar(String message, IconData icon) {
-    ScaffoldMessenger.of(context).hideCurrentSnackBar();
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Container(
-          padding: const EdgeInsets.symmetric(vertical: 4),
-          child: Row(
+  // En Çok Kazandıranlar Widget'ı
+  Widget _buildTopGainersWidget() {
+    // Varlıkları kar yüzdesine göre sırala
+    final sortedAssets = List<Map<String, dynamic>>.from(_userAssets);
+    sortedAssets.sort((a, b) {
+      final aPercent = _getAssetProfitPercent(a);
+      final bPercent = _getAssetProfitPercent(b);
+      return bPercent.compareTo(aPercent);
+    });
+
+    final topAssets = sortedAssets.take(5).toList();
+
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: AppColors.cardDark,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.borderDark),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
             children: [
               Container(
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.2),
-                  borderRadius: BorderRadius.circular(8),
+                  color: AppColors.yellowBg,
+                  borderRadius: BorderRadius.circular(10),
                 ),
-                child: Icon(icon, color: Colors.white, size: 20),
+                child: const Icon(
+                  Icons.emoji_events,
+                  color: Color(0xFFFBBF24),
+                  size: 20,
+                ),
               ),
               const SizedBox(width: 12),
-              Expanded(
+              Text(
+                'En Çok Kazandıranlar',
+                style: GoogleFonts.manrope(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: AppColors.textMainDark,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          if (topAssets.isEmpty)
+            Center(
+              child: Text(
+                'Henüz varlık eklenmedi',
+                style: GoogleFonts.manrope(color: AppColors.textSecondaryDark),
+              ),
+            )
+          else
+            ...topAssets.asMap().entries.map((entry) {
+              final index = entry.key;
+              final asset = entry.value;
+              final nameRaw = asset['name'] as String;
+              final name = nameRaw.contains('|')
+                  ? nameRaw.split('|')[0]
+                  : nameRaw;
+              final profitPercent = _getAssetProfitPercent(asset);
+              final isPositive = profitPercent >= 0;
+
+              return Container(
+                margin: const EdgeInsets.only(bottom: 8),
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF131022),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 28,
+                      height: 28,
+                      decoration: BoxDecoration(
+                        color: index == 0
+                            ? const Color(0xFFFBBF24)
+                            : index == 1
+                            ? const Color(0xFFC0C0C0)
+                            : index == 2
+                            ? const Color(0xFFCD7F32)
+                            : AppColors.grayBg,
+                        shape: BoxShape.circle,
+                      ),
+                      child: Center(
+                        child: Text(
+                          '${index + 1}',
+                          style: GoogleFonts.manrope(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                            color: index < 3
+                                ? Colors.black
+                                : AppColors.textMainDark,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        name,
+                        style: GoogleFonts.manrope(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.textMainDark,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: isPositive
+                            ? AppColors.positiveDark.withOpacity(0.15)
+                            : AppColors.negativeDark.withOpacity(0.15),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        '${isPositive ? '+' : ''}${profitPercent.toStringAsFixed(2)}%',
+                        style: GoogleFonts.manrope(
+                          fontSize: 13,
+                          fontWeight: FontWeight.bold,
+                          color: isPositive
+                              ? AppColors.positiveDark
+                              : AppColors.negativeDark,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            }),
+        ],
+      ),
+    );
+  }
+
+  double _getAssetProfitPercent(Map<String, dynamic> asset) {
+    final nameRaw = asset['name'] as String;
+    if (nameRaw.contains('|')) {
+      final parts = nameRaw.split('|');
+      if (parts.length > 1) {
+        final profitInfo = parts[1];
+        final match = RegExp(
+          r'profitLossPercent:([-\d.]+)',
+        ).firstMatch(profitInfo);
+        if (match != null) {
+          return double.tryParse(match.group(1)!) ?? 0.0;
+        }
+      }
+    }
+    return 0.0;
+  }
+
+  // Hedefler Widget'ı
+  Widget _buildGoalsWidget() {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: AppColors.cardDark,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.borderDark),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: AppColors.primary.withOpacity(0.2),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Icon(
+                      Icons.flag,
+                      color: AppColors.primary,
+                      size: 20,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Text(
+                    'Finansal Hedefler',
+                    style: GoogleFonts.manrope(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: AppColors.textMainDark,
+                    ),
+                  ),
+                ],
+              ),
+              TextButton(
+                onPressed: () {
+                  // Hedef ekleme ekranına git
+                },
                 child: Text(
-                  message,
+                  '+ Ekle',
                   style: GoogleFonts.manrope(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    color: Colors.white,
+                    color: AppColors.primary,
+                    fontWeight: FontWeight.bold,
                   ),
                 ),
               ),
             ],
           ),
-        ),
-        backgroundColor: const Color(0xFF1E293B),
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(
+          const SizedBox(height: 16),
+          _buildGoalItem(
+            'Emeklilik Fonu',
+            500000,
+            _calculateTotalValue() * 0.3,
+            Icons.beach_access,
+            const Color(0xFF4F46E5),
+          ),
+          const SizedBox(height: 12),
+          _buildGoalItem(
+            'Tatil Birikimleri',
+            50000,
+            _calculateTotalValue() * 0.15,
+            Icons.flight,
+            const Color(0xFF10B981),
+          ),
+          const SizedBox(height: 12),
+          _buildGoalItem(
+            'Acil Durum Fonu',
+            100000,
+            _calculateTotalValue() * 0.2,
+            Icons.health_and_safety,
+            const Color(0xFFEF4444),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildGoalItem(
+    String title,
+    double target,
+    double current,
+    IconData icon,
+    Color color,
+  ) {
+    final progress = target > 0 ? (current / target).clamp(0.0, 1.0) : 0.0;
+    final percentage = (progress * 100).toStringAsFixed(0);
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFF131022),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: color.withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(icon, color: color, size: 18),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: GoogleFonts.manrope(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.textMainDark,
+                      ),
+                    ),
+                    Text(
+                      '₺${_formatNumber(current)} / ₺${_formatNumber(target)}',
+                      style: GoogleFonts.manrope(
+                        fontSize: 12,
+                        color: AppColors.textSecondaryDark,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Text(
+                '%$percentage',
+                style: GoogleFonts.manrope(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: color,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(4),
+            child: LinearProgressIndicator(
+              value: progress,
+              backgroundColor: AppColors.borderDark,
+              valueColor: AlwaysStoppedAnimation<Color>(color),
+              minHeight: 6,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Hızlı İşlemler Widget'ı
+  Widget _buildQuickActionsWidget() {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: AppColors.cardDark,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.borderDark),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFBBF24).withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(
+                  Icons.flash_on,
+                  color: Color(0xFFFBBF24),
+                  size: 20,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Text(
+                'Hızlı İşlemler',
+                style: GoogleFonts.manrope(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: AppColors.textMainDark,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              Expanded(
+                child: _buildQuickActionButton(
+                  'Varlık Ekle',
+                  Icons.add_circle_outline,
+                  AppColors.primary,
+                  () => _navigateToAddAsset(),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _buildQuickActionButton(
+                  'Düzenle',
+                  Icons.edit_outlined,
+                  const Color(0xFF10B981),
+                  () async {
+                    final result = await Navigator.push<bool>(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const EditPortfolioScreen(),
+                      ),
+                    );
+                    if (result == true) {
+                      await _loadUserAssets();
+                    }
+                  },
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: _buildQuickActionButton(
+                  'İşlem Geçmişi',
+                  Icons.history,
+                  const Color(0xFF3B82F6),
+                  () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const TransactionHistoryScreen(),
+                      ),
+                    );
+                  },
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _buildQuickActionButton(
+                  'Analiz',
+                  Icons.analytics_outlined,
+                  const Color(0xFFF59E0B),
+                  () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const AnalyticsScreen(),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildQuickActionButton(
+    String title,
+    IconData icon,
+    Color color,
+    VoidCallback onTap,
+  ) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.1),
           borderRadius: BorderRadius.circular(12),
-          side: BorderSide(color: AppColors.primary.withOpacity(0.3), width: 1),
+          border: Border.all(color: color.withOpacity(0.3)),
         ),
-        margin: const EdgeInsets.only(bottom: 70, left: 16, right: 16),
-        duration: const Duration(seconds: 2),
-        elevation: 8,
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, color: color, size: 20),
+            const SizedBox(width: 8),
+            Text(
+              title,
+              style: GoogleFonts.manrope(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: color,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // Piyasa Özeti Widget'ı
+  Widget _buildMarketSummaryWidget() {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: AppColors.cardDark,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.borderDark),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF3B82F6).withOpacity(0.2),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Icon(
+                      Icons.public,
+                      color: Color(0xFF3B82F6),
+                      size: 20,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Text(
+                    'Piyasa Özeti',
+                    style: GoogleFonts.manrope(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: AppColors.textMainDark,
+                    ),
+                  ),
+                ],
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: AppColors.positiveDark.withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 6,
+                      height: 6,
+                      decoration: BoxDecoration(
+                        color: AppColors.positiveDark,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      'Canlı',
+                      style: GoogleFonts.manrope(
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
+                        color: AppColors.positiveDark,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              Expanded(
+                child: _buildMarketItem('BIST 100', '9,842.50', '+1.25%', true),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _buildMarketItem('USD/TRY', '34.25', '+0.15%', true),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: _buildMarketItem('EUR/TRY', '37.12', '-0.08%', false),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _buildMarketItem('Altın', '2,985.00', '+0.45%', true),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: _buildMarketItem('Bitcoin', '\$67,450', '+2.15%', true),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _buildMarketItem('Gümüş', '\$25.30', '-0.32%', false),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMarketItem(
+    String name,
+    String value,
+    String change,
+    bool isPositive,
+  ) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFF131022),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            name,
+            style: GoogleFonts.manrope(
+              fontSize: 12,
+              color: AppColors.textSecondaryDark,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            value,
+            style: GoogleFonts.manrope(
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+              color: AppColors.textMainDark,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+            decoration: BoxDecoration(
+              color: isPositive
+                  ? AppColors.positiveDark.withOpacity(0.15)
+                  : AppColors.negativeDark.withOpacity(0.15),
+              borderRadius: BorderRadius.circular(4),
+            ),
+            child: Text(
+              change,
+              style: GoogleFonts.manrope(
+                fontSize: 11,
+                fontWeight: FontWeight.bold,
+                color: isPositive
+                    ? AppColors.positiveDark
+                    : AppColors.negativeDark,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

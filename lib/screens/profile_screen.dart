@@ -12,7 +12,8 @@ import '../utils/app_logger.dart';
 import 'email_verification_screen.dart';
 import '../widgets/app_bottom_navigation.dart';
 import '../widgets/offline_mode_banner.dart';
-import '../widgets/loading_widgets.dart';
+import '../widgets/error_dialog.dart';
+import '../widgets/success_dialog.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -99,14 +100,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final email = authProvider.currentUser?['email'];
 
     if (email == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Email adresi bulunamadı',
-            style: GoogleFonts.manrope(),
-          ),
-          backgroundColor: Colors.red,
-        ),
+      ErrorDialog.show(
+        context,
+        title: 'Hata',
+        message: 'Email adresi bulunamadı',
       );
       return;
     }
@@ -134,36 +131,30 @@ class _ProfileScreenState extends State<ProfileScreen> {
         if (result == true) {
           await _checkEmailVerification();
           if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text(
-                  '✅ Email başarıyla doğrulandı!',
-                  style: GoogleFonts.manrope(),
-                ),
-                backgroundColor: Colors.green,
-              ),
+            SuccessDialog.show(
+              context,
+              title: 'Başarılı',
+              message: 'Email başarıyla doğrulandı!',
+              onDismiss: () {
+                // Email verification tamamlandı, dialog kapandı
+              },
             );
           }
         }
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              'Doğrulama kodu gönderilemedi',
-              style: GoogleFonts.manrope(),
-            ),
-            backgroundColor: Colors.red,
-          ),
+        ErrorDialog.show(
+          context,
+          title: 'Hata',
+          message: 'Doğrulama kodu gönderilemedi',
         );
       }
     } catch (e) {
       if (mounted) {
         setState(() => _isLoading = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Hata: $e', style: GoogleFonts.manrope()),
-            backgroundColor: Colors.red,
-          ),
+        ErrorDialog.show(
+          context,
+          title: 'Hata',
+          message: 'Bir hata oluştu: $e',
         );
       }
     }
@@ -256,14 +247,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              'Fotoğraf çekilirken hata: $e',
-              style: GoogleFonts.manrope(),
-            ),
-            backgroundColor: Colors.red,
-          ),
+        ErrorDialog.show(
+          context,
+          title: 'Hata',
+          message: 'Fotoğraf çekilirken hata: $e',
         );
       }
     }
@@ -301,24 +288,22 @@ class _ProfileScreenState extends State<ProfileScreen> {
           _isLoading = false;
         });
 
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              'Profil başarıyla güncellendi',
-              style: GoogleFonts.manrope(),
-            ),
-            backgroundColor: AppColors.primary,
-          ),
+        SuccessDialog.show(
+          context,
+          title: 'Başarılı',
+          message: 'Profil başarıyla güncellendi',
+          onDismiss: () {
+            // Profil güncellemesi tamamlandı
+          },
         );
       }
     } catch (e) {
       if (mounted) {
         setState(() => _isLoading = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Hata: $e', style: GoogleFonts.manrope()),
-            backgroundColor: Colors.red,
-          ),
+        ErrorDialog.show(
+          context,
+          title: 'Hata',
+          message: 'Bir hata oluştu: $e',
         );
       }
     }

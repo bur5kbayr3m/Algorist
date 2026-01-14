@@ -1,82 +1,103 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../theme/app_colors.dart';
-import '../providers/auth_provider.dart';
 import '../screens/portfolio_screen.dart';
 import '../screens/markets_screen.dart';
 import '../screens/analytics_screen.dart';
 import '../screens/profile_screen.dart';
 
-class AppBottomNavigation extends StatelessWidget {
+class AppBottomNavigation extends StatefulWidget {
   final int currentIndex;
 
   const AppBottomNavigation({super.key, required this.currentIndex});
 
   @override
+  State<AppBottomNavigation> createState() => _AppBottomNavigationState();
+}
+
+class _AppBottomNavigationState extends State<AppBottomNavigation> {
+  String? _userEmail;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadUserEmail();
+  }
+
+  Future<void> _loadUserEmail() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (mounted) {
+      setState(() {
+        _userEmail = prefs.getString('user_email');
+      });
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final authProvider = Provider.of<AuthProvider>(context, listen: false);
-    final userEmail = authProvider.currentUserEmail;
+    final userEmail = _userEmail;
+    
+    final hasFAB = widget.currentIndex == 0;
 
     return Container(
-      height: 68,
+      height: 76,
       decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [Color(0xFF1E293B), Color(0xFF0F172A)],
-        ),
+        color: const Color(0xFF0A0E27),
         border: Border(
           top: BorderSide(
-            color: AppColors.primary.withOpacity(0.3),
-            width: 1.5,
+            color: AppColors.primary.withOpacity(0.1),
+            width: 1,
           ),
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.2),
-            blurRadius: 10,
-            offset: const Offset(0, -2),
+            color: Colors.black.withOpacity(0.5),
+            blurRadius: 16,
+            offset: const Offset(0, -6),
           ),
         ],
       ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-        children: [
-          _buildNavItem(
-            context,
-            Icons.account_balance_wallet_rounded,
-            'Portföy',
-            0,
-            currentIndex == 0,
-            userEmail,
-          ),
-          _buildNavItem(
-            context,
-            Icons.trending_up_rounded,
-            'Piyasalar',
-            1,
-            currentIndex == 1,
-            userEmail,
-          ),
-          const SizedBox(width: 56),
-          _buildNavItem(
-            context,
-            Icons.bar_chart_rounded,
-            'Analiz',
-            2,
-            currentIndex == 2,
-            userEmail,
-          ),
-          _buildNavItem(
-            context,
-            Icons.person_rounded,
-            'Profil',
-            3,
-            currentIndex == 3,
-            userEmail,
-          ),
-        ],
+      child: SafeArea(
+        top: false,
+        child: Row(
+          mainAxisAlignment: hasFAB ? MainAxisAlignment.spaceEvenly : MainAxisAlignment.spaceAround,
+          children: [
+            _buildNavItem(
+              context,
+              Icons.account_balance_wallet_rounded,
+              'Portföy',
+              0,
+              widget.currentIndex == 0,
+              userEmail,
+            ),
+            _buildNavItem(
+              context,
+              Icons.trending_up_rounded,
+              'Piyasalar',
+              1,
+              widget.currentIndex == 1,
+              userEmail,
+            ),
+            if (hasFAB) const SizedBox(width: 60),
+            _buildNavItem(
+              context,
+              Icons.bar_chart_rounded,
+              'Analiz',
+              2,
+              widget.currentIndex == 2,
+              userEmail,
+            ),
+            _buildNavItem(
+              context,
+              Icons.person_rounded,
+              'Profil',
+              3,
+              widget.currentIndex == 3,
+              userEmail,
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -124,47 +145,34 @@ class AppBottomNavigation extends StatelessWidget {
                 }
               },
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
           decoration: BoxDecoration(
-            color: isActive
-                ? AppColors.primary.withOpacity(0.2)
-                : Colors.transparent,
-            borderRadius: BorderRadius.circular(16),
-            border: isActive
-                ? Border.all(
-                    color: AppColors.primary.withOpacity(0.3), width: 1)
-                : null,
+            color: isActive ? AppColors.primary.withOpacity(0.12) : Colors.transparent,
+            borderRadius: BorderRadius.circular(10),
           ),
           child: Column(
-            mainAxisSize: MainAxisSize.min,
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Container(
-                padding: const EdgeInsets.all(4),
-                decoration: BoxDecoration(
-                  color: isActive
-                      ? AppColors.primary.withOpacity(0.15)
-                      : Colors.transparent,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Icon(
-                  icon,
-                  color: isActive
-                      ? AppColors.primary
-                      : Colors.white.withOpacity(0.6),
-                  size: 22,
-                ),
+              Icon(
+                icon,
+                color: isActive
+                    ? AppColors.primary
+                    : Colors.white.withOpacity(0.7),
+                size: 20,
               ),
-              const SizedBox(height: 3),
-              Text(
-                label,
-                style: GoogleFonts.plusJakartaSans(
-                  fontSize: 10,
-                  fontWeight: isActive ? FontWeight.bold : FontWeight.w600,
-                  color: isActive
-                      ? AppColors.primary
-                      : Colors.white.withOpacity(0.6),
-                  letterSpacing: 0.1,
+              const SizedBox(height: 2),
+              Flexible(
+                child: Text(
+                  label,
+                  textAlign: TextAlign.center,
+                  maxLines: 1,
+                  overflow: TextOverflow.clip,
+                  style: GoogleFonts.manrope(
+                    fontSize: 9,
+                    fontWeight: isActive ? FontWeight.w700 : FontWeight.w600,
+                    color: isActive
+                        ? AppColors.primary
+                        : Colors.white.withOpacity(0.8),
+                  ),
                 ),
               ),
             ],

@@ -20,14 +20,13 @@ class RefreshableScrollView extends StatefulWidget {
 }
 
 class _RefreshableScrollViewState extends State<RefreshableScrollView> {
-  late Future<void> _refreshFuture;
-  bool _isRefreshing = false;
+
   DateTime _lastRefresh = DateTime.now();
+  bool _isRefreshing = false;
 
   @override
   void initState() {
     super.initState();
-    _refreshFuture = Future.value();
   }
 
   Future<void> _handleRefresh() async {
@@ -56,7 +55,10 @@ class _RefreshableScrollViewState extends State<RefreshableScrollView> {
       backgroundColor: const Color(0xFF1E293B),
       color: AppColors.primary,
       strokeWidth: 2,
-      child: widget.child,
+      child: Opacity(
+        opacity: _isRefreshing ? 0.8 : 1.0,
+        child: widget.child,
+      ),
     );
   }
 }

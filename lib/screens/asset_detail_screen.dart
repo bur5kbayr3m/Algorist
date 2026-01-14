@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../theme/app_colors.dart';
+import '../services/news_service.dart';
 
 class AssetDetailScreen extends StatefulWidget {
   final Map<String, dynamic> asset;
@@ -13,12 +15,14 @@ class AssetDetailScreen extends StatefulWidget {
 }
 
 enum ChartPeriod { day, week, month, threeMonths, year, all }
+enum ChartType { line, candlestick, area, bar }
 
 class _AssetDetailScreenState extends State<AssetDetailScreen> {
   ChartPeriod _selectedPeriod = ChartPeriod.day;
+  ChartType _selectedChartType = ChartType.line;
   bool _isLoadingNews = true;
-  List<Map<String, dynamic>> _kapNews = [];
-  List<Map<String, dynamic>> _generalNews = [];
+  List<KapNews> _kapNews = [];
+  List<NewsItem> _generalNews = [];
 
   @override
   void initState() {
@@ -29,16 +33,91 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
   Future<void> _loadNews() async {
     setState(() => _isLoadingNews = true);
 
-    // Simulated news loading - gerçek API entegrasyonu eklenecek
-    await Future.delayed(const Duration(seconds: 1));
+    try {
+      final assetName = _getCleanName();
+      final symbol = _getSymbol();
+      
+      // Gerçek haber servisinden veri çek
+      final newsService = NewsService.instance;
+      
+      final generalNews = await newsService.getStockNews(symbol, assetName);
+      final kapNews = newsService.getKapNews(symbol, assetName);
 
-    final assetName = _getCleanName();
+      if (mounted) {
+        setState(() {
+          _generalNews = generalNews;
+          _kapNews = kapNews;
+          _isLoadingNews = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isLoadingNews = false);
+      }
+    }
+  }
 
-    setState(() {
-      _kapNews = _generateMockKapNews(assetName);
-      _generalNews = _generateMockGeneralNews(assetName);
-      _isLoadingNews = false;
-    });
+  String _getSymbol() {
+    final nameRaw = widget.asset['name'] as String;
+    if (nameRaw.contains('|')) {
+      return nameRaw.split('|')[0].trim();
+    }
+    return nameRaw;
+  }
+
+  Future<void> _launchUrl(String url) async {
+    if (url.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.info_outline, color: Colors.white, size: 20),
+                const SizedBox(width: 12),
+                const Expanded(
+                  child: Text('Bu haber için kaynak linki mevcut değil'),
+                ),
+              ],
+            ),
+            backgroundColor: AppColors.slate700,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          ),
+        );
+      }
+      return;
+    }
+
+    try {
+      final uri = Uri.parse(url);
+      final launched = await launchUrl(
+        uri,
+        mode: LaunchMode.externalApplication,
+      );
+      
+      if (!launched && mounted) {
+        await launchUrl(uri, mode: LaunchMode.platformDefault);
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.error_outline, color: Colors.white, size: 20),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text('Bağlantı açılamadı: ${e.toString().split(':').first}'),
+                ),
+              ],
+            ),
+            backgroundColor: AppColors.negativeDark,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          ),
+        );
+      }
+    }
   }
 
   String _getCleanName() {
@@ -79,64 +158,6 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
       }
     }
     return 0.0;
-  }
-
-  List<Map<String, dynamic>> _generateMockKapNews(String assetName) {
-    return [
-      {
-        'title': '$assetName Finansal Tablo Açıklaması',
-        'date': DateTime.now().subtract(const Duration(hours: 2)),
-        'type': 'Finansal Tablo',
-        'importance': 'high',
-      },
-      {
-        'title': 'Yönetim Kurulu Kararları Açıklaması',
-        'date': DateTime.now().subtract(const Duration(days: 1)),
-        'type': 'Yönetim',
-        'importance': 'medium',
-      },
-      {
-        'title': 'Ortaklık Yapısı Değişikliği',
-        'date': DateTime.now().subtract(const Duration(days: 3)),
-        'type': 'Ortaklık',
-        'importance': 'high',
-      },
-      {
-        'title': 'Temettü Dağıtım Politikası',
-        'date': DateTime.now().subtract(const Duration(days: 5)),
-        'type': 'Temettü',
-        'importance': 'medium',
-      },
-    ];
-  }
-
-  List<Map<String, dynamic>> _generateMockGeneralNews(String assetName) {
-    return [
-      {
-        'title': '$assetName hisseleri yükselişte! Uzmanlar ne diyor?',
-        'source': 'Bloomberg HT',
-        'date': DateTime.now().subtract(const Duration(hours: 3)),
-        'imageUrl': null,
-      },
-      {
-        'title': 'Piyasa analisti: $assetName için yeni hedef fiyat açıkladı',
-        'source': 'Investing.com',
-        'date': DateTime.now().subtract(const Duration(hours: 5)),
-        'imageUrl': null,
-      },
-      {
-        'title': '$assetName\'nın çeyrek sonuçları beklentileri aştı',
-        'source': 'CNBC Türkiye',
-        'date': DateTime.now().subtract(const Duration(days: 1)),
-        'imageUrl': null,
-      },
-      {
-        'title': 'Sektör analizinde $assetName öne çıkıyor',
-        'source': 'Hürriyet',
-        'date': DateTime.now().subtract(const Duration(days: 2)),
-        'imageUrl': null,
-      },
-    ];
   }
 
   @override
@@ -240,14 +261,12 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
         ),
       ),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: () {
-          // İşlem yap (Al/Sat)
-        },
-        backgroundColor: AppColors.primary,
+        onPressed: () => _showSellDialog(),
+        backgroundColor: AppColors.negativeDark,
         elevation: 0,
-        icon: const Icon(Icons.swap_horiz),
+        icon: const Icon(Icons.sell),
         label: Text(
-          'İşlem Yap',
+          'Sat',
           style: GoogleFonts.manrope(fontWeight: FontWeight.bold),
         ),
       ),
@@ -362,6 +381,44 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
       ),
       child: Column(
         children: [
+          // Grafik türü seçici
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: ChartType.values.map((type) {
+              final isSelected = _selectedChartType == type;
+              return Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                child: InkWell(
+                  onTap: () => setState(() => _selectedChartType = type),
+                  borderRadius: BorderRadius.circular(8),
+                  child: Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: isSelected
+                          ? AppColors.primary.withOpacity(0.2)
+                          : Colors.transparent,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(
+                        color: isSelected
+                            ? AppColors.primary
+                            : AppColors.borderDark,
+                        width: 1,
+                      ),
+                    ),
+                    child: Icon(
+                      _getChartTypeIcon(type),
+                      size: 20,
+                      color: isSelected
+                          ? AppColors.primary
+                          : AppColors.textSecondaryDark,
+                    ),
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
+          const SizedBox(height: 16),
+          
           // Periyot seçici
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -398,7 +455,7 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
           ),
           const SizedBox(height: 24),
 
-          // Grafik placeholder (gerçek grafik kütüphanesi eklenecek)
+          // Grafik placeholder - seçilen türe göre ikon gösterimi
           SizedBox(
             height: 200,
             child: Center(
@@ -406,16 +463,17 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   Icon(
-                    Icons.show_chart,
+                    _getChartTypeIcon(_selectedChartType),
                     size: 48,
-                    color: AppColors.textSecondaryDark.withOpacity(0.5),
+                    color: AppColors.primary.withOpacity(0.5),
                   ),
                   const SizedBox(height: 12),
                   Text(
-                    'Grafik yükleniyor...',
+                    '${_getChartTypeName(_selectedChartType)} Grafik',
                     style: GoogleFonts.manrope(
                       fontSize: 14,
-                      color: AppColors.textSecondaryDark,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.textMainDark,
                     ),
                   ),
                   const SizedBox(height: 8),
@@ -434,6 +492,32 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
         ],
       ),
     );
+  }
+
+  IconData _getChartTypeIcon(ChartType type) {
+    switch (type) {
+      case ChartType.line:
+        return Icons.show_chart;
+      case ChartType.candlestick:
+        return Icons.candlestick_chart;
+      case ChartType.area:
+        return Icons.area_chart;
+      case ChartType.bar:
+        return Icons.bar_chart;
+    }
+  }
+
+  String _getChartTypeName(ChartType type) {
+    switch (type) {
+      case ChartType.line:
+        return 'Çizgi';
+      case ChartType.candlestick:
+        return 'Mum';
+      case ChartType.area:
+        return 'Alan';
+      case ChartType.bar:
+        return 'Çubuk';
+    }
   }
 
   String _getPeriodLabel(ChartPeriod period) {
@@ -766,9 +850,7 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
                 ],
               ),
               TextButton(
-                onPressed: () {
-                  // Tümünü göster
-                },
+                onPressed: () => _showAllKapNewsDialog(),
                 child: Text(
                   'Tümü',
                   style: GoogleFonts.manrope(
@@ -799,98 +881,94 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
     );
   }
 
-  Widget _buildKapNewsCard(Map<String, dynamic> news) {
-    final title = news['title'] as String;
-    final date = news['date'] as DateTime;
-    final type = news['type'] as String;
-    final importance = news['importance'] as String;
-
+  Widget _buildKapNewsCard(KapNews news) {
     Color importanceColor;
-    switch (importance) {
-      case 'high':
+    switch (news.importance) {
+      case KapImportance.high:
         importanceColor = AppColors.negativeDark;
         break;
-      case 'medium':
+      case KapImportance.medium:
         importanceColor = const Color(0xFFFBBF24); // yellow
         break;
       default:
         importanceColor = AppColors.textSecondaryDark;
     }
 
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: AppColors.cardDark,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.borderDark),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: importanceColor.withOpacity(0.2),
-                  borderRadius: BorderRadius.circular(6),
-                ),
-                child: Text(
-                  type,
-                  style: GoogleFonts.manrope(
-                    fontSize: 11,
-                    fontWeight: FontWeight.bold,
-                    color: importanceColor,
+    return GestureDetector(
+      onTap: () => _launchUrl(news.url),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 12),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: AppColors.cardDark,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: AppColors.borderDark),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: importanceColor.withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text(
+                    news.type,
+                    style: GoogleFonts.manrope(
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                      color: importanceColor,
+                    ),
                   ),
                 ),
-              ),
-              const Spacer(),
-              Icon(Icons.circle, size: 8, color: importanceColor),
-              const SizedBox(width: 6),
-              Text(
-                DateFormat('HH:mm • dd.MM.yyyy').format(date),
-                style: GoogleFonts.manrope(
-                  fontSize: 12,
-                  color: AppColors.textSecondaryDark,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Text(
-            title,
-            style: GoogleFonts.manrope(
-              fontSize: 15,
-              fontWeight: FontWeight.w600,
-              color: AppColors.textMainDark,
-              height: 1.4,
-            ),
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              const Spacer(),
-              TextButton.icon(
-                onPressed: () {
-                  // Detayı aç
-                },
-                icon: const Icon(
-                  Icons.open_in_new,
-                  size: 16,
-                  color: AppColors.primary,
-                ),
-                label: Text(
-                  'Detay',
+                const Spacer(),
+                Icon(Icons.circle, size: 8, color: importanceColor),
+                const SizedBox(width: 6),
+                Text(
+                  DateFormat('HH:mm • dd.MM.yyyy').format(news.date),
                   style: GoogleFonts.manrope(
-                    fontSize: 13,
+                    fontSize: 12,
+                    color: AppColors.textSecondaryDark,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Text(
+              news.title,
+              style: GoogleFonts.manrope(
+                fontSize: 15,
+                fontWeight: FontWeight.w600,
+                color: AppColors.textMainDark,
+                height: 1.4,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                const Spacer(),
+                TextButton.icon(
+                  onPressed: () => _launchUrl(news.url),
+                  icon: const Icon(
+                    Icons.open_in_new,
+                    size: 16,
                     color: AppColors.primary,
                   ),
+                  label: Text(
+                    'Detay',
+                    style: GoogleFonts.manrope(
+                      fontSize: 13,
+                      color: AppColors.primary,
+                    ),
+                  ),
                 ),
-              ),
-            ],
-          ),
-        ],
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -930,9 +1008,7 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
                 ],
               ),
               TextButton(
-                onPressed: () {
-                  // Tümünü göster
-                },
+                onPressed: () => _showAllGeneralNewsDialog(),
                 child: Text(
                   'Tümü',
                   style: GoogleFonts.manrope(
@@ -961,17 +1037,11 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
     );
   }
 
-  Widget _buildGeneralNewsCard(Map<String, dynamic> news) {
-    final title = news['title'] as String;
-    final source = news['source'] as String;
-    final date = news['date'] as DateTime;
-
+  Widget _buildGeneralNewsCard(NewsItem news) {
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       child: InkWell(
-        onTap: () {
-          // Haberi aç
-        },
+        onTap: () => _launchUrl(news.url),
         borderRadius: BorderRadius.circular(12),
         child: Container(
           padding: const EdgeInsets.all(16),
@@ -988,7 +1058,7 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      title,
+                      news.title,
                       style: GoogleFonts.manrope(
                         fontSize: 15,
                         fontWeight: FontWeight.w600,
@@ -1008,7 +1078,7 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
                         ),
                         const SizedBox(width: 6),
                         Text(
-                          source,
+                          news.source,
                           style: GoogleFonts.manrope(
                             fontSize: 12,
                             color: AppColors.textSecondaryDark,
@@ -1022,7 +1092,7 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
                         ),
                         const SizedBox(width: 6),
                         Text(
-                          _getTimeAgo(date),
+                          _getTimeAgo(news.publishedAt),
                           style: GoogleFonts.manrope(
                             fontSize: 12,
                             color: AppColors.textSecondaryDark,
@@ -1035,9 +1105,9 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
               ),
               const SizedBox(width: 12),
               const Icon(
-                Icons.arrow_forward_ios,
+                Icons.open_in_new,
                 size: 16,
-                color: AppColors.textSecondaryDark,
+                color: AppColors.primary,
               ),
             ],
           ),
@@ -1084,5 +1154,367 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
     } else {
       return 'Az önce';
     }
+  }
+
+  void _showAllKapNewsDialog() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => Container(
+        height: MediaQuery.of(context).size.height * 0.85,
+        decoration: const BoxDecoration(
+          color: Color(0xFF1E293B),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        child: Column(
+          children: [
+            Container(
+              margin: const EdgeInsets.only(top: 12),
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.3),
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.all(24),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'Tüm KAP Bildirimleri',
+                    style: GoogleFonts.manrope(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close, color: Colors.white),
+                    onPressed: () => Navigator.pop(context),
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: _kapNews.isEmpty
+                  ? Center(
+                      child: Text(
+                        'KAP bildirimi bulunamadı',
+                        style: GoogleFonts.manrope(color: Colors.white70),
+                      ),
+                    )
+                  : ListView.builder(
+                      padding: const EdgeInsets.symmetric(horizontal: 24),
+                      itemCount: _kapNews.length,
+                      itemBuilder: (context, index) => _buildKapNewsCard(_kapNews[index]),
+                    ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showAllGeneralNewsDialog() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => Container(
+        height: MediaQuery.of(context).size.height * 0.85,
+        decoration: const BoxDecoration(
+          color: Color(0xFF1E293B),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        child: Column(
+          children: [
+            Container(
+              margin: const EdgeInsets.only(top: 12),
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.3),
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.all(24),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'Tüm Haberler',
+                    style: GoogleFonts.manrope(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close, color: Colors.white),
+                    onPressed: () => Navigator.pop(context),
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: _generalNews.isEmpty
+                  ? Center(
+                      child: Text(
+                        'Haber bulunamadı',
+                        style: GoogleFonts.manrope(color: Colors.white70),
+                      ),
+                    )
+                  : ListView.builder(
+                      padding: const EdgeInsets.symmetric(horizontal: 24),
+                      itemCount: _generalNews.length,
+                      itemBuilder: (context, index) => _buildGeneralNewsCard(_generalNews[index]),
+                    ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showSellDialog() {
+    final assetName = _getCleanName();
+    final type = widget.asset['type'] as String;
+    final quantity = (widget.asset['quantity'] as num?)?.toDouble() ?? 0.0;
+    final purchasePrice = (widget.asset['purchasePrice'] as num?)?.toDouble() ?? 0.0;
+    final currentPrice = type == 'Nakit' ? purchasePrice : purchasePrice * 1.05;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => _AssetSellBottomSheet(
+        assetName: assetName,
+        currentPrice: currentPrice,
+        assetType: type,
+        maxQuantity: quantity,
+      ),
+    );
+  }
+}
+
+class _AssetSellBottomSheet extends StatefulWidget {
+  final String assetName;
+  final double currentPrice;
+  final String assetType;
+  final double maxQuantity;
+
+  const _AssetSellBottomSheet({
+    required this.assetName,
+    required this.currentPrice,
+    required this.assetType,
+    required this.maxQuantity,
+  });
+
+  @override
+  State<_AssetSellBottomSheet> createState() => _AssetSellBottomSheetState();
+}
+
+class _AssetSellBottomSheetState extends State<_AssetSellBottomSheet> {
+  final _quantityController = TextEditingController(text: '1');
+  double _totalValue = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _calculateTotal();
+  }
+
+  void _calculateTotal() {
+    final quantity = double.tryParse(_quantityController.text) ?? 0;
+    setState(() {
+      _totalValue = quantity * widget.currentPrice;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final quantity = double.tryParse(_quantityController.text) ?? 0;
+    final isValidQuantity = quantity > 0 && quantity <= widget.maxQuantity;
+
+    return Container(
+      padding: EdgeInsets.only(
+        bottom: MediaQuery.of(context).viewInsets.bottom,
+      ),
+      decoration: const BoxDecoration(
+        color: Color(0xFF1E293B),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      child: SingleChildScrollView(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.3),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 24),
+
+              Text(
+                '${widget.assetName} Sat',
+                style: GoogleFonts.manrope(
+                  fontSize: 24,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.white,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Güncel Fiyat: ₺${widget.currentPrice.toStringAsFixed(2)}',
+                style: GoogleFonts.manrope(
+                  fontSize: 14,
+                  color: Colors.white.withOpacity(0.7),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Mevcut Miktar: ${widget.maxQuantity.toStringAsFixed(widget.assetType == 'Fon' ? 6 : 2)} Adet',
+                style: GoogleFonts.manrope(
+                  fontSize: 14,
+                  color: AppColors.primary,
+                ),
+              ),
+              const SizedBox(height: 24),
+
+              // Miktar
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'Satılacak Miktar',
+                    style: GoogleFonts.manrope(
+                      fontSize: 14,
+                      color: Colors.white.withOpacity(0.7),
+                    ),
+                  ),
+                  TextButton(
+                    onPressed: () {
+                      _quantityController.text = widget.maxQuantity.toStringAsFixed(
+                        widget.assetType == 'Fon' ? 6 : 2,
+                      );
+                      _calculateTotal();
+                    },
+                    child: Text(
+                      'Tümünü Sat',
+                      style: GoogleFonts.manrope(
+                        fontSize: 13,
+                        color: AppColors.negativeDark,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: _quantityController,
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                onChanged: (_) => _calculateTotal(),
+                style: GoogleFonts.manrope(color: Colors.white, fontSize: 18),
+                decoration: InputDecoration(
+                  filled: true,
+                  fillColor: Colors.white.withOpacity(0.05),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide.none,
+                  ),
+                  suffixText: 'Adet',
+                  suffixStyle: GoogleFonts.manrope(color: Colors.white.withOpacity(0.5)),
+                  errorText: !isValidQuantity && quantity > 0 
+                      ? 'Mevcut miktardan fazla satılamaz' 
+                      : null,
+                ),
+              ),
+              const SizedBox(height: 24),
+
+              // Toplam
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: AppColors.negativeDark.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: AppColors.negativeDark.withOpacity(0.3)),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      'Satış Tutarı',
+                      style: GoogleFonts.manrope(
+                        fontSize: 16,
+                        color: Colors.white.withOpacity(0.8),
+                      ),
+                    ),
+                    Text(
+                      '₺${_totalValue.toStringAsFixed(2)}',
+                      style: GoogleFonts.manrope(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                        color: AppColors.negativeDark,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 24),
+
+              // Satış Butonu
+              SizedBox(
+                width: double.infinity,
+                height: 56,
+                child: ElevatedButton(
+                  onPressed: isValidQuantity
+                      ? () {
+                          Navigator.pop(context);
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(
+                                'Satış emri oluşturuldu: ${_quantityController.text} adet ${widget.assetName}',
+                              ),
+                              backgroundColor: AppColors.negativeDark,
+                            ),
+                          );
+                        }
+                      : null,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.negativeDark,
+                    disabledBackgroundColor: Colors.grey.shade700,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                  ),
+                  child: Text(
+                    'SAT',
+                    style: GoogleFonts.manrope(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }

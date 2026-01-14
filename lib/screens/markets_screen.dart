@@ -1,13 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:provider/provider.dart';
-import '../providers/auth_provider.dart';
 import '../theme/app_colors.dart';
 import '../utils/app_logger.dart';
-import 'add_asset_screen.dart';
 import '../widgets/app_bottom_navigation.dart';
 import '../widgets/offline_mode_banner.dart';
-import '../widgets/loading_widgets.dart';
+import '../widgets/success_dialog.dart';
+import 'market_asset_detail_screen.dart';
 
 class MarketsScreen extends StatefulWidget {
   final String userEmail;
@@ -291,55 +289,67 @@ class _MarketsScreenState extends State<MarketsScreen> {
     final isPositive = item.change >= 0;
     final changeColor = isPositive ? Colors.green : Colors.red;
 
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: isDarkMode ? AppColors.surfaceDark : Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: isDarkMode
-              ? Colors.white.withOpacity(0.1)
-              : Colors.grey.shade200,
-        ),
-      ),
-      child: Row(
-        children: [
-          // Icon
-          Container(
-            width: 40,
-            height: 40,
-            decoration: BoxDecoration(
-              color: _getCategoryColor(item.category).withOpacity(0.1),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Icon(
-              _getCategoryIcon(item.category),
-              color: _getCategoryColor(item.category),
-              size: 20,
+    return GestureDetector(
+      onTap: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => MarketAssetDetailScreen(
+              marketItem: item,
+              userEmail: widget.userEmail,
             ),
           ),
+        );
+      },
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 12),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: isDarkMode ? AppColors.surfaceDark : Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: isDarkMode
+                ? Colors.white.withOpacity(0.1)
+                : Colors.grey.shade200,
+          ),
+        ),
+        child: Row(
+          children: [
+            // Icon
+            Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: _getCategoryColor(item.category).withOpacity(0.1),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Icon(
+                _getCategoryIcon(item.category),
+                color: _getCategoryColor(item.category),
+                size: 20,
+              ),
+            ),
 
-          const SizedBox(width: 12),
+            const SizedBox(width: 12),
 
-          // Info
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  item.symbol,
-                  style: GoogleFonts.plusJakartaSans(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    color: isDarkMode ? Colors.white : AppColors.textPrimary,
+            // Info
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    item.symbol,
+                    style: GoogleFonts.plusJakartaSans(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: isDarkMode ? Colors.white : AppColors.textPrimary,
+                    ),
                   ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  item.name,
-                  style: GoogleFonts.plusJakartaSans(
-                    fontSize: 12,
+                  const SizedBox(height: 2),
+                  Text(
+                    item.name,
+                    style: GoogleFonts.plusJakartaSans(
+                      fontSize: 12,
                     color: isDarkMode
                         ? Colors.white.withOpacity(0.6)
                         : AppColors.textSecondary,
@@ -395,6 +405,7 @@ class _MarketsScreenState extends State<MarketsScreen> {
             ],
           ),
         ],
+      ),
       ),
     );
   }
@@ -825,12 +836,13 @@ class _AddMarketItemSheetState extends State<AddMarketItemSheet>
           onTap: () {
             widget.onAdd(item);
             Navigator.pop(context);
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text('${item.symbol} izleme listesine eklendi'),
-                backgroundColor: Colors.green,
-                behavior: SnackBarBehavior.floating,
-              ),
+            SuccessDialog.show(
+              context,
+              title: 'Başarılı',
+              message: '${item.symbol} izleme listesine eklendi',
+              onDismiss: () {
+                // İzleme listesine ekleme tamamlandı
+              },
             );
           },
           child: Container(

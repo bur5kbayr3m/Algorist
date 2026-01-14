@@ -4,6 +4,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter/foundation.dart';
 import '../services/email_verification_service.dart';
 import '../theme/app_colors.dart';
+import '../widgets/success_dialog.dart';
+import '../widgets/error_dialog.dart';
 
 class EmailVerificationScreen extends StatefulWidget {
   final String email;
@@ -170,14 +172,21 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
   }
 
   void _showError(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message), backgroundColor: Colors.red),
+    ErrorDialog.show(
+      context,
+      title: 'Hata',
+      message: message,
     );
   }
 
   void _showSuccess(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message), backgroundColor: Colors.green),
+    SuccessDialog.show(
+      context,
+      title: 'Email Doğrulandı',
+      message: message,
+      onDismiss: () {
+        Navigator.of(context).pop(true);
+      },
     );
   }
 

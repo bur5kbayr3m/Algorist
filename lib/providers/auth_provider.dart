@@ -88,8 +88,9 @@ class AuthProvider with ChangeNotifier {
       );
 
       if (success) {
-        // Kayıt başarılı, otomatik giriş yap
-        return await login(email: email, password: password);
+        // Kayıt başarılı - otomatik login yapmıyoruz
+        // Register screen'de success dialog gösterilecek
+        return true;
       } else {
         _errorMessage = 'Bu email adresi zaten kullanılıyor';
         return false;
@@ -224,6 +225,35 @@ class AuthProvider with ChangeNotifier {
 
     _isLoading = false;
     notifyListeners();
+  }
+
+  /// Kullanıcı profilini günceller
+  Future<bool> updateUserProfile({String? fullName, String? phone}) async {
+    if (_currentUserEmail == null) return false;
+
+    _isLoading = true;
+    notifyListeners();
+
+    try {
+      final success = await _authService.updateProfile(
+        email: _currentUserEmail!,
+        fullName: fullName,
+        phone: phone,
+      );
+
+      if (success) {
+        if (fullName != null) _currentUserName = fullName;
+        if (phone != null) _currentUserPhone = phone;
+      }
+
+      return success;
+    } catch (e) {
+      _errorMessage = 'Profil güncellenemedi: $e';
+      return false;
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
   }
 
   /// Hata mesajını temizler

@@ -114,29 +114,27 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     width: double.infinity,
                     height: 52,
                     child: ElevatedButton(
-                      onPressed: () async {
+                      onPressed: () {
                         Navigator.pop(context);
+                        
                         final authProvider = Provider.of<AuthProvider>(
                           context,
                           listen: false,
                         );
                         final email = authProvider.currentUserEmail;
-                        if (email != null) {
-                          final success = await EmailVerificationService
-                              .instance
-                              .sendVerificationCode(email);
-                          if (success && mounted) {
-                            final result = await Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (context) =>
-                                    EmailVerificationScreen(email: email),
-                              ),
-                            );
+                        
+                        if (email != null && email.isNotEmpty) {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) =>
+                                  EmailVerificationScreen(email: email),
+                            ),
+                          ).then((result) {
                             if (result == true) {
                               _checkEmailVerification();
                             }
-                          }
+                          });
                         }
                       },
                       style: ElevatedButton.styleFrom(

@@ -2,6 +2,8 @@ import 'package:algorist/login_screen.dart';
 import 'package:algorist/screens/portfolio_screen.dart';
 import 'package:algorist/screens/onboarding_screen.dart';
 import 'package:algorist/services/notification_service.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'firebase_options.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -10,9 +12,18 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'providers/auth_provider.dart';
 import 'providers/theme_provider.dart';
 
-void main() {
+Future<void> main() async {
   // Hızlı başlangıç için binding'i optimize et
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Firebase'i başlat (başarısız olsa da devam et - SQLite kullan)
+  try {
+    await Firebase.initializeApp(
+      options: DefaultFirebaseOptions.currentPlatform,
+    );
+  } catch (e) {
+    print('⚠️ Firebase initialization failed, using SQLite only: $e');
+  }
 
   // Sadece portrait mode
   SystemChrome.setPreferredOrientations([
@@ -20,7 +31,7 @@ void main() {
     DeviceOrientation.portraitDown,
   ]);
 
-  // Bildirim servisini arkaplanda başlat (await kullanma!)
+  // Bildirim servisini arkaplanda başlat
   NotificationService.instance.initialize();
 
   runApp(
@@ -47,7 +58,12 @@ class MyApp extends StatelessWidget {
           themeMode: themeProvider.themeMode,
           theme: _buildLightTheme(),
           darkTheme: _buildDarkTheme(),
-          home: const AuthWrapper(),
+          // 🔧 DEBUG MODE - Testi yapmak istediğin screen'i seç:
+          // home: const LoginScreen(),  // Login test
+          // home: const RegisterScreen(),  // Register test
+          // home: const OnboardingScreen(),  // Onboarding test
+          // home: const PortfolioScreen(),  // Portfolio test (authenticated)
+          home: const AuthWrapper(),  // Main app navigation
         );
       },
     );
@@ -91,14 +107,12 @@ class _AuthWrapperState extends State<AuthWrapper> {
   @override
   void initState() {
     super.initState();
-    _checkAuth();
-  }
-
-  Future<void> _checkAuth() async {
-    await Future.delayed(Duration.zero);
-    if (mounted) {
-      context.read<AuthProvider>().checkAuthStatus();
-    }
+    Future.microtask(() {
+      if (mounted) {
+        final authProvider = Provider.of<AuthProvider>(context, listen: false);
+        authProvider.checkAuthStatus();
+      }
+    });
   }
 
   @override
