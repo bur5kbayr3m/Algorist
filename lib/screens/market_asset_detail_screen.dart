@@ -19,10 +19,12 @@ class MarketAssetDetailScreen extends StatefulWidget {
   });
 
   @override
-  State<MarketAssetDetailScreen> createState() => _MarketAssetDetailScreenState();
+  State<MarketAssetDetailScreen> createState() =>
+      _MarketAssetDetailScreenState();
 }
 
 enum ChartPeriod { day, week, month, threeMonths, year, all }
+
 enum ChartType { line, candlestick, area, bar }
 
 class _MarketAssetDetailScreenState extends State<MarketAssetDetailScreen>
@@ -35,6 +37,14 @@ class _MarketAssetDetailScreenState extends State<MarketAssetDetailScreen>
   List<NewsItem> _generalNews = [];
   List<Map<String, dynamic>> _chartData = [];
   late TabController _tabController;
+
+  // Grafik zoom ve pan değişkenleri
+  double _minX = 0;
+  double _maxX = 50;
+  double _viewportWidth = 50;
+  double _zoomLevel = 1.0;
+  final double _maxZoomLevel = 4.0;
+  final double _minZoomLevel = 0.5;
 
   @override
   void initState() {
@@ -50,18 +60,42 @@ class _MarketAssetDetailScreenState extends State<MarketAssetDetailScreen>
     super.dispose();
   }
 
+  void _handleZoom(double delta) {
+    setState(() {
+      _zoomLevel = (_zoomLevel + delta).clamp(_minZoomLevel, _maxZoomLevel);
+      _viewportWidth = (_chartData.length / _zoomLevel).clamp(10, _chartData.length.toDouble());
+      _maxX = (_minX + _viewportWidth).clamp(_viewportWidth, _chartData.length.toDouble());
+    });
+  }
+
+  void _handlePan(double delta) {
+    setState(() {
+      _minX = (_minX + delta).clamp(0, _chartData.length - _viewportWidth);
+      _maxX = _minX + _viewportWidth;
+    });
+  }
+
+  void _resetZoom() {
+    setState(() {
+      _zoomLevel = 1.0;
+      _minX = 0;
+      _maxX = _chartData.length.toDouble();
+      _viewportWidth = _chartData.length.toDouble();
+    });
+  }
+
   Future<void> _loadNews() async {
     setState(() => _isLoadingNews = true);
 
     try {
       // Gerçek haber servisinden veri çek
       final newsService = NewsService.instance;
-      
+
       final generalNews = await newsService.getStockNews(
         widget.marketItem.symbol,
         widget.marketItem.name,
       );
-      
+
       final kapNews = newsService.getKapNews(
         widget.marketItem.symbol,
         widget.marketItem.name,
@@ -88,7 +122,7 @@ class _MarketAssetDetailScreenState extends State<MarketAssetDetailScreen>
       // Yahoo Finance'den tarihsel veri çek
       String range = '1d';
       String interval = '5m';
-      
+
       switch (_selectedPeriod) {
         case ChartPeriod.day:
           range = '1d';
@@ -160,7 +194,9 @@ class _MarketAssetDetailScreenState extends State<MarketAssetDetailScreen>
             ),
             backgroundColor: AppColors.slate700,
             behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
           ),
         );
       }
@@ -174,7 +210,7 @@ class _MarketAssetDetailScreenState extends State<MarketAssetDetailScreen>
         uri,
         mode: LaunchMode.externalApplication,
       );
-      
+
       if (!launched && mounted) {
         // Alternatif olarak platformDefault dene
         await launchUrl(uri, mode: LaunchMode.platformDefault);
@@ -188,13 +224,17 @@ class _MarketAssetDetailScreenState extends State<MarketAssetDetailScreen>
                 const Icon(Icons.error_outline, color: Colors.white, size: 20),
                 const SizedBox(width: 12),
                 Expanded(
-                  child: Text('Bağlantı açılamadı: ${e.toString().split(':').first}'),
+                  child: Text(
+                    'Bağlantı açılamadı: ${e.toString().split(':').first}',
+                  ),
                 ),
               ],
             ),
             backgroundColor: AppColors.negativeDark,
             behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
           ),
         );
       }
@@ -205,7 +245,9 @@ class _MarketAssetDetailScreenState extends State<MarketAssetDetailScreen>
   Widget build(BuildContext context) {
     final item = widget.marketItem;
     final isPositive = item.change >= 0;
-    final changeColor = isPositive ? AppColors.positiveDark : AppColors.negativeDark;
+    final changeColor = isPositive
+        ? AppColors.positiveDark
+        : AppColors.negativeDark;
 
     return Scaffold(
       backgroundColor: AppColors.backgroundDark,
@@ -274,7 +316,11 @@ class _MarketAssetDetailScreenState extends State<MarketAssetDetailScreen>
     );
   }
 
-  Widget _buildPriceSection(MarketItem item, Color changeColor, bool isPositive) {
+  Widget _buildPriceSection(
+    MarketItem item,
+    Color changeColor,
+    bool isPositive,
+  ) {
     return Container(
       padding: const EdgeInsets.all(24),
       child: Column(
@@ -301,7 +347,10 @@ class _MarketAssetDetailScreenState extends State<MarketAssetDetailScreen>
               ),
               const SizedBox(width: 12),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 6,
+                ),
                 decoration: BoxDecoration(
                   color: changeColor.withOpacity(0.15),
                   borderRadius: BorderRadius.circular(8),
@@ -331,10 +380,7 @@ class _MarketAssetDetailScreenState extends State<MarketAssetDetailScreen>
           const SizedBox(height: 8),
           Text(
             'Değişim: ${isPositive ? '+' : ''}₺${item.change.toStringAsFixed(2)}',
-            style: GoogleFonts.manrope(
-              fontSize: 14,
-              color: changeColor,
-            ),
+            style: GoogleFonts.manrope(fontSize: 14, color: changeColor),
           ),
         ],
       ),
@@ -370,14 +416,18 @@ class _MarketAssetDetailScreenState extends State<MarketAssetDetailScreen>
                           : Colors.transparent,
                       borderRadius: BorderRadius.circular(8),
                       border: Border.all(
-                        color: isSelected ? AppColors.primary : AppColors.borderDark,
+                        color: isSelected
+                            ? AppColors.primary
+                            : AppColors.borderDark,
                         width: 1,
                       ),
                     ),
                     child: Icon(
                       _getChartTypeIcon(type),
                       size: 20,
-                      color: isSelected ? AppColors.primary : AppColors.textSecondaryDark,
+                      color: isSelected
+                          ? AppColors.primary
+                          : AppColors.textSecondaryDark,
                     ),
                   ),
                 ),
@@ -397,7 +447,10 @@ class _MarketAssetDetailScreenState extends State<MarketAssetDetailScreen>
                   _loadChartData();
                 },
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 6,
+                  ),
                   decoration: BoxDecoration(
                     color: isSelected
                         ? AppColors.primary.withOpacity(0.2)
@@ -408,8 +461,12 @@ class _MarketAssetDetailScreenState extends State<MarketAssetDetailScreen>
                     _getPeriodLabel(period),
                     style: GoogleFonts.manrope(
                       fontSize: 12,
-                      fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                      color: isSelected ? AppColors.primary : AppColors.textSecondaryDark,
+                      fontWeight: isSelected
+                          ? FontWeight.bold
+                          : FontWeight.normal,
+                      color: isSelected
+                          ? AppColors.primary
+                          : AppColors.textSecondaryDark,
                     ),
                   ),
                 ),
@@ -418,22 +475,54 @@ class _MarketAssetDetailScreenState extends State<MarketAssetDetailScreen>
           ),
           const SizedBox(height: 24),
 
+          // Grafik ipuçları
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            decoration: BoxDecoration(
+              color: AppColors.primary.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: AppColors.primary.withOpacity(0.3)),
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.touch_app, size: 16, color: AppColors.primary),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'İpucu: İki parmakla yakınlaştırma yapabilir, sürükleyerek grafikte gezinebilirsiniz',
+                    style: GoogleFonts.manrope(
+                      fontSize: 11,
+                      color: AppColors.textMainDark,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+
           // Gerçek Grafik
           SizedBox(
             height: 200,
             child: _isLoadingChart
-                ? const Center(child: CircularProgressIndicator(color: AppColors.primary))
+                ? const Center(
+                    child: CircularProgressIndicator(color: AppColors.primary),
+                  )
                 : _chartData.isEmpty
-                    ? Center(
-                        child: Text(
-                          'Grafik verisi yüklenemedi',
-                          style: GoogleFonts.manrope(
-                            fontSize: 14,
-                            color: AppColors.textSecondaryDark,
-                          ),
-                        ),
-                      )
-                    : _buildChartByType(),
+                ? Center(
+                    child: Text(
+                      'Grafik verisi yüklenemedi',
+                      style: GoogleFonts.manrope(
+                        fontSize: 14,
+                        color: AppColors.textSecondaryDark,
+                      ),
+                    ),
+                  )
+                : RepaintBoundary(
+                    // OPTIMIZATION: Grafik çizimi maliyetlidir. Veri değişmediği sürece
+                    // tekrar boyanmasını (repaint) engellemek için RepaintBoundary kullanıyoruz.
+                    child: _buildChartByType(),
+                  ),
           ),
         ],
       ),
@@ -454,94 +543,210 @@ class _MarketAssetDetailScreenState extends State<MarketAssetDetailScreen>
   }
 
   Widget _buildLineChart() {
-    return LineChart(
-      LineChartData(
-        gridData: FlGridData(
-          show: true,
-          drawVerticalLine: false,
-          horizontalInterval: 1,
-          getDrawingHorizontalLine: (value) {
-            return FlLine(
-              color: AppColors.borderDark.withOpacity(0.3),
-              strokeWidth: 1,
-            );
+    if (_chartData.isEmpty) return const SizedBox();
+    
+    // İlk yüklemede viewport ayarla
+    if (_maxX == 50 && _chartData.length > 50) {
+      _maxX = _chartData.length.toDouble();
+      _viewportWidth = _chartData.length.toDouble();
+    }
+
+    return Stack(
+      children: [
+        GestureDetector(
+          onDoubleTap: _resetZoom,
+          onHorizontalDragUpdate: (details) {
+            // Sağa-sola kaydırma (pan)
+            final delta = -details.primaryDelta! / 5;
+            _handlePan(delta);
           },
-        ),
-        titlesData: FlTitlesData(
-          show: true,
-          rightTitles: const AxisTitles(
-            sideTitles: SideTitles(showTitles: false),
-          ),
-          topTitles: const AxisTitles(
-            sideTitles: SideTitles(showTitles: false),
-          ),
-          bottomTitles: AxisTitles(
-            sideTitles: SideTitles(
-              showTitles: true,
-              reservedSize: 30,
-              interval: _chartData.length / 4,
-              getTitlesWidget: (value, meta) {
-                if (value.toInt() >= 0 && value.toInt() < _chartData.length) {
-                  final date = _chartData[value.toInt()]['date'] as DateTime;
-                  return Padding(
-                    padding: const EdgeInsets.only(top: 8.0),
-                    child: Text(
-                      DateFormat('HH:mm').format(date),
-                      style: GoogleFonts.manrope(
-                        fontSize: 10,
-                        color: AppColors.textSecondaryDark,
-                      ),
-                    ),
+          onScaleUpdate: (details) {
+            // Pinch zoom
+            if (details.scale != 1.0) {
+              final zoomDelta = (details.scale - 1.0) * 0.5;
+              _handleZoom(zoomDelta);
+            }
+          },
+          child: LineChart(
+            LineChartData(
+              lineTouchData: LineTouchData(
+                enabled: true,
+                touchTooltipData: LineTouchTooltipData(
+                  getTooltipItems: (touchedSpots) {
+                    return touchedSpots.map((spot) {
+                      if (spot.x.toInt() >= 0 && spot.x.toInt() < _chartData.length) {
+                        final date = _chartData[spot.x.toInt()]['date'] as DateTime;
+                        return LineTooltipItem(
+                          '${DateFormat('HH:mm').format(date)}\n₺${spot.y.toStringAsFixed(2)}',
+                          GoogleFonts.manrope(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 12,
+                          ),
+                        );
+                      }
+                      return null;
+                    }).toList();
+                  },
+                ),
+              ),
+              gridData: FlGridData(
+                show: true,
+                drawVerticalLine: false,
+                horizontalInterval: 1,
+                getDrawingHorizontalLine: (value) {
+                  return FlLine(
+                    color: AppColors.borderDark.withOpacity(0.3),
+                    strokeWidth: 1,
                   );
-                }
-                return const SizedBox();
-              },
-            ),
-          ),
-          leftTitles: AxisTitles(
-            sideTitles: SideTitles(
-              showTitles: true,
-              reservedSize: 40,
-              getTitlesWidget: (value, meta) {
-                return Text(
-                  value.toStringAsFixed(0),
-                  style: GoogleFonts.manrope(
-                    fontSize: 10,
-                    color: AppColors.textSecondaryDark,
+                },
+              ),
+              titlesData: FlTitlesData(
+                show: true,
+                rightTitles: const AxisTitles(
+                  sideTitles: SideTitles(showTitles: false),
+                ),
+                topTitles: const AxisTitles(
+                  sideTitles: SideTitles(showTitles: false),
+                ),
+                bottomTitles: AxisTitles(
+                  sideTitles: SideTitles(
+                    showTitles: true,
+                    reservedSize: 30,
+                    interval: _chartData.length / 4,
+                    getTitlesWidget: (value, meta) {
+                      if (value.toInt() >= 0 &&
+                          value.toInt() < _chartData.length) {
+                        final date =
+                            _chartData[value.toInt()]['date'] as DateTime;
+                        return Padding(
+                          padding: const EdgeInsets.only(top: 8.0),
+                          child: Text(
+                            DateFormat('HH:mm').format(date),
+                            style: GoogleFonts.manrope(
+                              fontSize: 10,
+                              color: AppColors.textSecondaryDark,
+                            ),
+                          ),
+                        );
+                      }
+                      return const SizedBox();
+                    },
                   ),
-                );
-              },
+                ),
+                leftTitles: AxisTitles(
+                  sideTitles: SideTitles(
+                    showTitles: true,
+                    reservedSize: 40,
+                    getTitlesWidget: (value, meta) {
+                      return Text(
+                        value.toStringAsFixed(0),
+                        style: GoogleFonts.manrope(
+                          fontSize: 10,
+                          color: AppColors.textSecondaryDark,
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ),
+              borderData: FlBorderData(show: false),
+              minX: _minX,
+              maxX: _maxX,
+              minY:
+                  _chartData
+                      .map((e) => e['close'] as double)
+                      .reduce((a, b) => a < b ? a : b) *
+                  0.995,
+              maxY:
+                  _chartData
+                      .map((e) => e['close'] as double)
+                      .reduce((a, b) => a > b ? a : b) *
+                  1.005,
+              lineBarsData: [
+                LineChartBarData(
+                  spots: _chartData.asMap().entries.map((entry) {
+                    return FlSpot(
+                      entry.key.toDouble(),
+                      entry.value['close'] as double,
+                    );
+                  }).toList(),
+                  isCurved: true,
+                  color: widget.marketItem.change >= 0
+                      ? Colors.green
+                      : Colors.red,
+                  barWidth: 2,
+                  isStrokeCapRound: true,
+                  dotData: const FlDotData(show: false),
+                  belowBarData: BarAreaData(show: false),
+                ),
+              ],
             ),
           ),
         ),
-        borderData: FlBorderData(show: false),
-        minX: 0,
-        maxX: (_chartData.length - 1).toDouble(),
-        minY: _chartData.map((e) => e['close'] as double).reduce((a, b) => a < b ? a : b) * 0.995,
-        maxY: _chartData.map((e) => e['close'] as double).reduce((a, b) => a > b ? a : b) * 1.005,
-        lineBarsData: [
-          LineChartBarData(
-            spots: _chartData.asMap().entries.map((entry) {
-              return FlSpot(
-                entry.key.toDouble(),
-                entry.value['close'] as double,
-              );
-            }).toList(),
-            isCurved: true,
-            color: widget.marketItem.change >= 0 ? Colors.green : Colors.red,
-            barWidth: 2,
-            isStrokeCapRound: true,
-            dotData: const FlDotData(show: false),
-            belowBarData: BarAreaData(show: false),
+        // Zoom kontrolü ve reset butonu
+        if (_zoomLevel != 1.0)
+          Positioned(
+            top: 10,
+            right: 10,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: AppColors.cardDark,
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: AppColors.primary.withOpacity(0.3)),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.zoom_in, size: 16, color: AppColors.primary),
+                  const SizedBox(width: 4),
+                  Text(
+                    '${_zoomLevel.toStringAsFixed(1)}x',
+                    style: GoogleFonts.manrope(
+                      fontSize: 12,
+                      color: AppColors.textMainDark,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  InkWell(
+                    onTap: _resetZoom,
+                    child: Icon(
+                      Icons.refresh,
+                      size: 16,
+                      color: AppColors.primary,
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ),
-        ],
-      ),
+      ],
     );
   }
 
   Widget _buildAreaChart() {
     return LineChart(
       LineChartData(
+        lineTouchData: LineTouchData(
+          enabled: true,
+          touchTooltipData: LineTouchTooltipData(
+            getTooltipItems: (touchedSpots) {
+              return touchedSpots.map((spot) {
+                final date = _chartData[spot.x.toInt()]['date'] as DateTime;
+                return LineTooltipItem(
+                  '${DateFormat('HH:mm').format(date)}\n₺${spot.y.toStringAsFixed(2)}',
+                  GoogleFonts.manrope(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 12,
+                  ),
+                );
+              }).toList();
+            },
+          ),
+        ),
         gridData: FlGridData(
           show: true,
           drawVerticalLine: false,
@@ -631,6 +836,30 @@ class _MarketAssetDetailScreenState extends State<MarketAssetDetailScreen>
   Widget _buildCandlestickChart() {
     return BarChart(
       BarChartData(
+        barTouchData: BarTouchData(
+          enabled: true,
+          touchTooltipData: BarTouchTooltipData(
+            getTooltipItem: (group, groupIndex, rod, rodIndex) {
+              if (groupIndex < _chartData.length) {
+                final data = _chartData[groupIndex];
+                final date = data['date'] as DateTime;
+                final open = data['open'] as double;
+                final close = data['close'] as double;
+                final high = data['high'] as double;
+                final low = data['low'] as double;
+                return BarTooltipItem(
+                  '${DateFormat('HH:mm').format(date)}\n'
+                  'A: ₺${open.toStringAsFixed(2)}\n'
+                  'K: ₺${close.toStringAsFixed(2)}\n'
+                  'Y: ₺${high.toStringAsFixed(2)}\n'
+                  'D: ₺${low.toStringAsFixed(2)}',
+                  GoogleFonts.manrope(color: Colors.white, fontSize: 11),
+                );
+              }
+              return null;
+            },
+          ),
+        ),
         gridData: FlGridData(
           show: true,
           drawVerticalLine: false,
@@ -697,18 +926,16 @@ class _MarketAssetDetailScreenState extends State<MarketAssetDetailScreen>
           final high = data['high'] as double;
           final low = data['low'] as double;
           final isPositive = close >= open;
-          
+
           return BarChartGroupData(
             x: entry.key,
             barRods: [
-              // Fitil (low-high)
               BarChartRodData(
                 fromY: low,
                 toY: high,
                 color: isPositive ? Colors.green : Colors.red,
                 width: 1,
               ),
-              // Gövde (open-close)
               BarChartRodData(
                 fromY: open < close ? open : close,
                 toY: open < close ? close : open,
@@ -725,6 +952,24 @@ class _MarketAssetDetailScreenState extends State<MarketAssetDetailScreen>
   Widget _buildBarChart() {
     return BarChart(
       BarChartData(
+        barTouchData: BarTouchData(
+          enabled: true,
+          touchTooltipData: BarTouchTooltipData(
+            getTooltipItem: (group, groupIndex, rod, rodIndex) {
+              if (groupIndex < _chartData.length) {
+                final data = _chartData[groupIndex];
+                final date = data['date'] as DateTime;
+                final volume = data['volume'] as int;
+                return BarTooltipItem(
+                  '${DateFormat('HH:mm').format(date)}\n'
+                  'Hacim: ${NumberFormat.compact().format(volume)}',
+                  GoogleFonts.manrope(color: Colors.white, fontSize: 11),
+                );
+              }
+              return null;
+            },
+          ),
+        ),
         gridData: FlGridData(
           show: true,
           drawVerticalLine: false,
@@ -789,7 +1034,7 @@ class _MarketAssetDetailScreenState extends State<MarketAssetDetailScreen>
           final close = data['close'] as double;
           final open = data['open'] as double;
           final isPositive = close >= open;
-          
+
           return BarChartGroupData(
             x: entry.key,
             barRods: [
@@ -850,8 +1095,14 @@ class _MarketAssetDetailScreenState extends State<MarketAssetDetailScreen>
           const SizedBox(height: 16),
           _buildDetailRow('Kategori', item.category),
           _buildDetailRow('Sembol', item.symbol),
-          _buildDetailRow('Günlük Değişim', '${item.change >= 0 ? '+' : ''}₺${item.change.toStringAsFixed(2)}'),
-          _buildDetailRow('Yüzdesel Değişim', '${item.changePercent >= 0 ? '+' : ''}${item.changePercent.toStringAsFixed(2)}%'),
+          _buildDetailRow(
+            'Günlük Değişim',
+            '${item.change >= 0 ? '+' : ''}₺${item.change.toStringAsFixed(2)}',
+          ),
+          _buildDetailRow(
+            'Yüzdesel Değişim',
+            '${item.changePercent >= 0 ? '+' : ''}${item.changePercent.toStringAsFixed(2)}%',
+          ),
         ],
       ),
     );
@@ -917,33 +1168,99 @@ class _MarketAssetDetailScreenState extends State<MarketAssetDetailScreen>
 
           // Tab Bar
           Container(
+            padding: const EdgeInsets.all(4),
             decoration: BoxDecoration(
               color: AppColors.cardDark,
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color: AppColors.borderDark.withOpacity(0.3),
+                width: 1,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.1),
+                  blurRadius: 8,
+                  offset: const Offset(0, 2),
+                ),
+              ],
             ),
             child: TabBar(
               controller: _tabController,
               indicator: BoxDecoration(
-                color: AppColors.primary,
+                gradient: LinearGradient(
+                  colors: [
+                    AppColors.primary,
+                    AppColors.primary.withOpacity(0.8),
+                  ],
+                ),
                 borderRadius: BorderRadius.circular(12),
+                boxShadow: [
+                  BoxShadow(
+                    color: AppColors.primary.withOpacity(0.3),
+                    blurRadius: 8,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
               ),
+              indicatorSize: TabBarIndicatorSize.tab,
+              dividerColor: Colors.transparent,
               labelColor: Colors.white,
               unselectedLabelColor: AppColors.textSecondaryDark,
-              labelStyle: GoogleFonts.manrope(fontWeight: FontWeight.w600, fontSize: 13),
+              labelStyle: GoogleFonts.manrope(
+                fontWeight: FontWeight.w700,
+                fontSize: 14,
+                letterSpacing: 0.3,
+              ),
+              unselectedLabelStyle: GoogleFonts.manrope(
+                fontWeight: FontWeight.w500,
+                fontSize: 14,
+              ),
               tabs: const [
-                Tab(text: 'Genel'),
-                Tab(text: 'KAP'),
-                Tab(text: 'Analiz'),
+                Tab(
+                  height: 44,
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.article_outlined, size: 18),
+                      SizedBox(width: 6),
+                      Text('Genel'),
+                    ],
+                  ),
+                ),
+                Tab(
+                  height: 44,
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.description_outlined, size: 18),
+                      SizedBox(width: 6),
+                      Text('KAP'),
+                    ],
+                  ),
+                ),
+                Tab(
+                  height: 44,
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.analytics_outlined, size: 18),
+                      SizedBox(width: 6),
+                      Text('Analiz'),
+                    ],
+                  ),
+                ),
               ],
             ),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 20),
 
           // Tab Content
           SizedBox(
             height: 300,
             child: _isLoadingNews
-                ? const Center(child: CircularProgressIndicator(color: AppColors.primary))
+                ? const Center(
+                    child: CircularProgressIndicator(color: AppColors.primary),
+                  )
                 : TabBarView(
                     controller: _tabController,
                     children: [
@@ -995,8 +1312,10 @@ class _MarketAssetDetailScreenState extends State<MarketAssetDetailScreen>
   }
 
   Widget _buildAnalysisNewsList() {
-    final analysisNews = _generalNews.where((n) => n.category == 'Analiz').toList();
-    
+    final analysisNews = _generalNews
+        .where((n) => n.category == 'Analiz')
+        .toList();
+
     if (analysisNews.isEmpty) {
       // Mock analiz haberleri
       return ListView(
@@ -1067,7 +1386,7 @@ class _MarketAssetDetailScreenState extends State<MarketAssetDetailScreen>
     String? imageUrl,
   }) {
     final hasUrl = url.isNotEmpty;
-    
+
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -1087,7 +1406,9 @@ class _MarketAssetDetailScreenState extends State<MarketAssetDetailScreen>
             ),
             borderRadius: BorderRadius.circular(16),
             border: Border.all(
-              color: hasUrl ? AppColors.primary.withOpacity(0.2) : AppColors.borderDark,
+              color: hasUrl
+                  ? AppColors.primary.withOpacity(0.2)
+                  : AppColors.borderDark,
             ),
             boxShadow: [
               BoxShadow(
@@ -1104,7 +1425,10 @@ class _MarketAssetDetailScreenState extends State<MarketAssetDetailScreen>
               Row(
                 children: [
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 4,
+                    ),
                     decoration: BoxDecoration(
                       color: AppColors.primary.withOpacity(0.15),
                       borderRadius: BorderRadius.circular(20),
@@ -1146,7 +1470,7 @@ class _MarketAssetDetailScreenState extends State<MarketAssetDetailScreen>
                 ],
               ),
               const SizedBox(height: 12),
-              
+
               // Title
               Text(
                 title,
@@ -1159,19 +1483,24 @@ class _MarketAssetDetailScreenState extends State<MarketAssetDetailScreen>
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
               ),
-              
+
               const SizedBox(height: 12),
-              
+
               // Footer with action
               Row(
                 children: [
                   if (hasUrl) ...[
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 6,
+                      ),
                       decoration: BoxDecoration(
                         color: AppColors.primary.withOpacity(0.1),
                         borderRadius: BorderRadius.circular(20),
-                        border: Border.all(color: AppColors.primary.withOpacity(0.3)),
+                        border: Border.all(
+                          color: AppColors.primary.withOpacity(0.3),
+                        ),
                       ),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
@@ -1195,7 +1524,10 @@ class _MarketAssetDetailScreenState extends State<MarketAssetDetailScreen>
                     ),
                   ] else ...[
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 6,
+                      ),
                       decoration: BoxDecoration(
                         color: AppColors.slate700.withOpacity(0.5),
                         borderRadius: BorderRadius.circular(20),
@@ -1243,14 +1575,14 @@ class _MarketAssetDetailScreenState extends State<MarketAssetDetailScreen>
     final importanceColor = news.importance == KapImportance.high
         ? const Color(0xFFEF4444)
         : news.importance == KapImportance.medium
-            ? const Color(0xFFF59E0B)
-            : const Color(0xFF6B7280);
-    
+        ? const Color(0xFFF59E0B)
+        : const Color(0xFF6B7280);
+
     final importanceLabel = news.importance == KapImportance.high
         ? 'Önemli'
         : news.importance == KapImportance.medium
-            ? 'Orta'
-            : 'Bilgi';
+        ? 'Orta'
+        : 'Bilgi';
 
     return Material(
       color: Colors.transparent,
@@ -1263,15 +1595,10 @@ class _MarketAssetDetailScreenState extends State<MarketAssetDetailScreen>
             gradient: LinearGradient(
               begin: Alignment.centerLeft,
               end: Alignment.centerRight,
-              colors: [
-                importanceColor.withOpacity(0.1),
-                AppColors.surfaceDark,
-              ],
+              colors: [importanceColor.withOpacity(0.1), AppColors.surfaceDark],
             ),
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(
-              color: importanceColor.withOpacity(0.3),
-            ),
+            border: Border.all(color: importanceColor.withOpacity(0.3)),
             boxShadow: [
               BoxShadow(
                 color: importanceColor.withOpacity(0.1),
@@ -1305,11 +1632,16 @@ class _MarketAssetDetailScreenState extends State<MarketAssetDetailScreen>
                         children: [
                           // KAP Badge
                           Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 4,
+                            ),
                             decoration: BoxDecoration(
                               color: const Color(0xFF1E40AF).withOpacity(0.2),
                               borderRadius: BorderRadius.circular(6),
-                              border: Border.all(color: const Color(0xFF3B82F6).withOpacity(0.3)),
+                              border: Border.all(
+                                color: const Color(0xFF3B82F6).withOpacity(0.3),
+                              ),
                             ),
                             child: Row(
                               mainAxisSize: MainAxisSize.min,
@@ -1334,7 +1666,10 @@ class _MarketAssetDetailScreenState extends State<MarketAssetDetailScreen>
                           const SizedBox(width: 8),
                           // Type Badge
                           Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 4,
+                            ),
                             decoration: BoxDecoration(
                               color: AppColors.primary.withOpacity(0.15),
                               borderRadius: BorderRadius.circular(6),
@@ -1351,7 +1686,10 @@ class _MarketAssetDetailScreenState extends State<MarketAssetDetailScreen>
                           const Spacer(),
                           // Importance Badge
                           Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 4,
+                            ),
                             decoration: BoxDecoration(
                               color: importanceColor.withOpacity(0.15),
                               borderRadius: BorderRadius.circular(6),
@@ -1407,16 +1745,23 @@ class _MarketAssetDetailScreenState extends State<MarketAssetDetailScreen>
                             _formatDate(news.date),
                             style: GoogleFonts.manrope(
                               fontSize: 11,
-                              color: AppColors.textSecondaryDark.withOpacity(0.7),
+                              color: AppColors.textSecondaryDark.withOpacity(
+                                0.7,
+                              ),
                             ),
                           ),
                           const Spacer(),
                           Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 5,
+                            ),
                             decoration: BoxDecoration(
                               color: const Color(0xFF1E40AF).withOpacity(0.15),
                               borderRadius: BorderRadius.circular(20),
-                              border: Border.all(color: const Color(0xFF3B82F6).withOpacity(0.3)),
+                              border: Border.all(
+                                color: const Color(0xFF3B82F6).withOpacity(0.3),
+                              ),
                             ),
                             child: Row(
                               mainAxisSize: MainAxisSize.min,
@@ -1514,10 +1859,8 @@ class _MarketAssetDetailScreenState extends State<MarketAssetDetailScreen>
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (context) => _TradeBottomSheet(
-        item: item,
-        userEmail: widget.userEmail,
-      ),
+      builder: (context) =>
+          _TradeBottomSheet(item: item, userEmail: widget.userEmail),
     );
   }
 
@@ -1571,13 +1914,25 @@ class _MarketAssetDetailScreenState extends State<MarketAssetDetailScreen>
                     _buildDetailRow('Şirket Adı', item.name),
                     _buildDetailRow('Sembol', item.symbol),
                     _buildDetailRow('Kategori', item.category),
-                    _buildDetailRow('Fiyat', '₺${item.price.toStringAsFixed(2)}'),
-                    _buildDetailRow('Günlük Değişim', '₺${item.change.toStringAsFixed(2)}'),
-                    _buildDetailRow('Yüzdesel Değişim', '${item.changePercent.toStringAsFixed(2)}%'),
+                    _buildDetailRow(
+                      'Fiyat',
+                      '₺${item.price.toStringAsFixed(2)}',
+                    ),
+                    _buildDetailRow(
+                      'Günlük Değişim',
+                      '₺${item.change.toStringAsFixed(2)}',
+                    ),
+                    _buildDetailRow(
+                      'Yüzdesel Değişim',
+                      '${item.changePercent.toStringAsFixed(2)}%',
+                    ),
                     const Divider(color: AppColors.borderDark, height: 32),
                     _buildDetailRow('Piyasa Değeri', 'Hesaplanıyor...'),
                     _buildDetailRow('Hacim', 'API Entegrasyonu Gerekli'),
-                    _buildDetailRow('52H En Yüksek', 'API Entegrasyonu Gerekli'),
+                    _buildDetailRow(
+                      '52H En Yüksek',
+                      'API Entegrasyonu Gerekli',
+                    ),
                     _buildDetailRow('52H En Düşük', 'API Entegrasyonu Gerekli'),
                     const SizedBox(height: 24),
                   ],
@@ -1665,10 +2020,7 @@ class _TradeBottomSheet extends StatefulWidget {
   final MarketItem item;
   final String userEmail;
 
-  const _TradeBottomSheet({
-    required this.item,
-    required this.userEmail,
-  });
+  const _TradeBottomSheet({required this.item, required this.userEmail});
 
   @override
   State<_TradeBottomSheet> createState() => _TradeBottomSheetState();
@@ -1753,7 +2105,9 @@ class _TradeBottomSheetState extends State<_TradeBottomSheet> {
                         child: Container(
                           padding: const EdgeInsets.symmetric(vertical: 14),
                           decoration: BoxDecoration(
-                            color: _isBuying ? Colors.green : Colors.transparent,
+                            color: _isBuying
+                                ? Colors.green
+                                : Colors.transparent,
                             borderRadius: BorderRadius.circular(12),
                           ),
                           child: Center(
@@ -1762,7 +2116,9 @@ class _TradeBottomSheetState extends State<_TradeBottomSheet> {
                               style: GoogleFonts.manrope(
                                 fontSize: 16,
                                 fontWeight: FontWeight.bold,
-                                color: _isBuying ? Colors.white : Colors.white.withOpacity(0.5),
+                                color: _isBuying
+                                    ? Colors.white
+                                    : Colors.white.withOpacity(0.5),
                               ),
                             ),
                           ),
@@ -1784,7 +2140,9 @@ class _TradeBottomSheetState extends State<_TradeBottomSheet> {
                               style: GoogleFonts.manrope(
                                 fontSize: 16,
                                 fontWeight: FontWeight.bold,
-                                color: !_isBuying ? Colors.white : Colors.white.withOpacity(0.5),
+                                color: !_isBuying
+                                    ? Colors.white
+                                    : Colors.white.withOpacity(0.5),
                               ),
                             ),
                           ),
@@ -1818,7 +2176,9 @@ class _TradeBottomSheetState extends State<_TradeBottomSheet> {
                     borderSide: BorderSide.none,
                   ),
                   suffixText: 'Adet',
-                  suffixStyle: GoogleFonts.manrope(color: Colors.white.withOpacity(0.5)),
+                  suffixStyle: GoogleFonts.manrope(
+                    color: Colors.white.withOpacity(0.5),
+                  ),
                 ),
               ),
               const SizedBox(height: 24),

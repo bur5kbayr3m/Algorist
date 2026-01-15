@@ -1,0 +1,29 @@
+{
+  "include": [
+    "**/*.py"
+  ],
+  "exclude": [
+    "**/node_modules",
+    "**/__pycache__",
+    "**/venv",
+    "**/.venv",
+    "**/typings"
+  ],
+  "reportMissingImports": true,
+  "reportMissingTypeStubs": false,
+  "reportUnknownMemberType": false,
+  "reportUnknownVariableType": false,
+  "reportUnknownArgumentType": false,
+  "reportUnknownParameterType": false,
+  "reportUnknownLambdaType": false,
+  "reportGeneralTypeIssues": true,
+  "reportOptionalMemberAccess": true,
+  "reportOptionalCall": true,
+  "reportOptionalSubscript": true,
+  "reportPrivateUsage": true,
+  "reportUnnecessaryIsInstance": false,
+  "reportUnnecessaryTypeIgnoreComment": false,
+  "reportMissingParameterType": false,
+  "pythonVersion": "3.12",
+  "typeCheckingMode": "off"
+}

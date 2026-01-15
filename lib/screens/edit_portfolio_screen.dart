@@ -104,39 +104,38 @@ class _EditPortfolioScreenState extends State<EditPortfolioScreen> {
 
     if (confirm == true) {
       try {
+        // Önce silme işlemini yap
         await PortfolioService.instance.deleteAsset(assetId);
-        if (mounted) {
-          await _loadUserAssets();
-          
-          // Başarı mesajı göster ve 1 saniye sonra geri dön
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text(
-                  'Varlık başarıyla silindi',
-                  style: GoogleFonts.manrope(),
-                ),
-                backgroundColor: Colors.green.shade700,
-                duration: const Duration(seconds: 1),
-              ),
-            );
-            
-            // Portfolio screen'i güncellemek için true döndür
-            await Future.delayed(const Duration(milliseconds: 500));
-            if (mounted) {
-              Navigator.pop(context, true);
-            }
-          }
-        }
-      } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Hata: $e', style: GoogleFonts.manrope()),
-              backgroundColor: Colors.red.shade700,
+
+        if (!mounted) return;
+
+        // Listeyi güncelle
+        await _loadUserAssets();
+
+        if (!mounted) return;
+
+        // Başarı mesajı göster
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              '$assetName başarıyla silindi',
+              style: GoogleFonts.manrope(),
             ),
-          );
-        }
+            backgroundColor: Colors.green.shade700,
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      } catch (e) {
+        if (!mounted) return;
+
+        // Hata mesajı göster
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Hata: $e', style: GoogleFonts.manrope()),
+            backgroundColor: Colors.red.shade700,
+            duration: const Duration(seconds: 3),
+          ),
+        );
       }
     }
   }
@@ -211,7 +210,10 @@ class _EditPortfolioScreenState extends State<EditPortfolioScreen> {
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: () {
+              quantityController.dispose();
+              Navigator.pop(context);
+            },
             style: TextButton.styleFrom(
               padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
             ),
@@ -226,8 +228,11 @@ class _EditPortfolioScreenState extends State<EditPortfolioScreen> {
           ElevatedButton(
             onPressed: () {
               final value = double.tryParse(quantityController.text);
+              quantityController.dispose();
               if (value != null && value > 0) {
                 Navigator.pop(context, value);
+              } else {
+                Navigator.pop(context);
               }
             },
             style: ElevatedButton.styleFrom(
@@ -408,7 +413,11 @@ class _EditPortfolioScreenState extends State<EditPortfolioScreen> {
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: () {
+              sellQuantityController.dispose();
+              sellPriceController.dispose();
+              Navigator.pop(context);
+            },
             style: TextButton.styleFrom(
               padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
             ),
@@ -430,6 +439,8 @@ class _EditPortfolioScreenState extends State<EditPortfolioScreen> {
                   sellQty > 0 &&
                   sellQty <= quantity &&
                   sellPrice > 0) {
+                sellQuantityController.dispose();
+                sellPriceController.dispose();
                 Navigator.pop(context, {
                   'quantity': sellQty,
                   'price': sellPrice,

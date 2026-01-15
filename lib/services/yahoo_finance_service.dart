@@ -12,13 +12,9 @@ class YahooFinanceService {
   /// symbol: THYAO.IS, BIMAS.IS gibi
   Future<Map<String, dynamic>?> getQuote(String symbol) async {
     try {
-      final url = Uri.parse(
-        '$_baseUrl/v8/finance/chart/$symbol',
-      );
+      final url = Uri.parse('$_baseUrl/v8/finance/chart/$symbol');
 
-      final response = await http.get(url).timeout(
-        const Duration(seconds: 10),
-      );
+      final response = await http.get(url).timeout(const Duration(seconds: 10));
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
@@ -33,8 +29,8 @@ class YahooFinanceService {
           'change': meta['regularMarketPrice'] - meta['previousClose'],
           'changePercent':
               ((meta['regularMarketPrice'] - meta['previousClose']) /
-                      meta['previousClose']) *
-                  100,
+                  meta['previousClose']) *
+              100,
           'currency': meta['currency'],
           'timezone': meta['timezone'],
         };
@@ -61,9 +57,7 @@ class YahooFinanceService {
         '$_baseUrl/v8/finance/chart/$symbol?interval=$interval&range=$range',
       );
 
-      final response = await http.get(url).timeout(
-        const Duration(seconds: 10),
-      );
+      final response = await http.get(url).timeout(const Duration(seconds: 10));
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
@@ -81,9 +75,7 @@ class YahooFinanceService {
           if (closes[i] != null) {
             chartData.add({
               'timestamp': timestamps[i],
-              'date': DateTime.fromMillisecondsSinceEpoch(
-                timestamps[i] * 1000,
-              ),
+              'date': DateTime.fromMillisecondsSinceEpoch(timestamps[i] * 1000),
               'open': opens[i]?.toDouble() ?? 0.0,
               'close': closes[i]?.toDouble() ?? 0.0,
               'high': highs[i]?.toDouble() ?? 0.0,
@@ -93,10 +85,7 @@ class YahooFinanceService {
           }
         }
 
-        return {
-          'symbol': result['meta']['symbol'],
-          'data': chartData,
-        };
+        return {'symbol': result['meta']['symbol'], 'data': chartData};
       }
 
       AppLogger.warning('Historical data fetch failed: ${response.statusCode}');
@@ -107,20 +96,24 @@ class YahooFinanceService {
     }
   }
 
-  /// Birden fazla hisse için veri çeker
+  /// Birden fazla hisse için veri çeker (paralel)
   Future<List<Map<String, dynamic>>> getMultipleQuotes(
     List<String> symbols,
   ) async {
-    final List<Map<String, dynamic>> quotes = [];
+    // Tüm API çağrılarını paralel olarak başlat
+    final futures = symbols.map((symbol) => getQuote(symbol)).toList();
 
-    for (String symbol in symbols) {
-      final quote = await getQuote(symbol);
-      if (quote != null) {
-        quotes.add(quote);
-      }
-    }
+    // Tüm sonuçları bekle
+    final results = await Future.wait(
+      futures,
+      eagerError: false, // Bir hata diğerlerini durdurmasın
+    );
 
-    return quotes;
+    // Null olmayan sonuçları filtrele ve döndür
+    return results
+        .where((quote) => quote != null)
+        .cast<Map<String, dynamic>>()
+        .toList();
   }
 
   /// BIST 100 hisseleri için semboller

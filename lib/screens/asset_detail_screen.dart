@@ -4,6 +4,8 @@ import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../theme/app_colors.dart';
 import '../services/news_service.dart';
+import '../services/backend_api_service.dart';
+import '../utils/app_logger.dart';
 
 class AssetDetailScreen extends StatefulWidget {
   final Map<String, dynamic> asset;
@@ -15,6 +17,7 @@ class AssetDetailScreen extends StatefulWidget {
 }
 
 enum ChartPeriod { day, week, month, threeMonths, year, all }
+
 enum ChartType { line, candlestick, area, bar }
 
 class _AssetDetailScreenState extends State<AssetDetailScreen> {
@@ -24,10 +27,16 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
   List<KapNews> _kapNews = [];
   List<NewsItem> _generalNews = [];
 
+  // Real-time price data
+  double? _currentPrice;
+  bool _isLoadingPrice = true;
+  final BackendApiService _backendApi = BackendApiService();
+
   @override
   void initState() {
     super.initState();
     _loadNews();
+    _loadCurrentPrice();
   }
 
   Future<void> _loadNews() async {
@@ -36,10 +45,10 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
     try {
       final assetName = _getCleanName();
       final symbol = _getSymbol();
-      
+
       // Gerçek haber servisinden veri çek
       final newsService = NewsService.instance;
-      
+
       final generalNews = await newsService.getStockNews(symbol, assetName);
       final kapNews = newsService.getKapNews(symbol, assetName);
 
@@ -51,9 +60,99 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
         });
       }
     } catch (e) {
+      AppLogger.error('Error loading news', e);
       if (mounted) {
         setState(() => _isLoadingNews = false);
       }
+    }
+  }
+
+  Future<void> _loadCurrentPrice() async {
+    setState(() => _isLoadingPrice = true);
+
+    try {
+      final type = widget.asset['type'] as String;
+
+      // Nakit için fiyat güncellemesi yok
+      if (type == 'Nakit') {
+        setState(() {
+          _currentPrice = null;
+          _isLoadingPrice = false;
+        });
+        return;
+      }
+
+      final symbol = _getSymbol();
+      if (symbol.isEmpty) {
+        setState(() {
+          _currentPrice = null;
+          _isLoadingPrice = false;
+        });
+        return;
+      }
+
+      // Backend'den ilgili varlık tipine göre fiyat çek
+      if (type == 'Hisse') {
+        final stocks = await _backendApi.getStocks();
+        final stock = stocks.firstWhere(
+          (s) => s['symbol'].toString().toUpperCase().contains(
+            symbol.toUpperCase(),
+          ),
+          orElse: () => {},
+        );
+        if (stock.isNotEmpty) {
+          setState(() {
+            _currentPrice = stock['price']?.toDouble();
+            _isLoadingPrice = false;
+          });
+        }
+      } else if (type == 'Döviz') {
+        final forex = await _backendApi.getForex();
+        final pair = forex.firstWhere(
+          (f) => f['symbol'].toString().toUpperCase().contains(
+            symbol.toUpperCase(),
+          ),
+          orElse: () => {},
+        );
+        if (pair.isNotEmpty) {
+          setState(() {
+            _currentPrice = pair['price']?.toDouble();
+            _isLoadingPrice = false;
+          });
+        }
+      } else if (type == 'Altın' || type == 'Emtia') {
+        final commodities = await _backendApi.getCommodities();
+        final commodity = commodities.firstWhere(
+          (c) =>
+              c['symbol'].toString().toUpperCase().contains(
+                symbol.toUpperCase(),
+              ) ||
+              c['name'].toString().toUpperCase().contains(symbol.toUpperCase()),
+          orElse: () => {},
+        );
+        if (commodity.isNotEmpty) {
+          setState(() {
+            _currentPrice = commodity['price']?.toDouble();
+            _isLoadingPrice = false;
+          });
+        }
+      } else if (type == 'Fon') {
+        final funds = await _backendApi.getFunds();
+        final fund = funds.firstWhere(
+          (f) =>
+              f['code'].toString().toUpperCase().contains(symbol.toUpperCase()),
+          orElse: () => {},
+        );
+        if (fund.isNotEmpty) {
+          setState(() {
+            _currentPrice = fund['price']?.toDouble();
+            _isLoadingPrice = false;
+          });
+        }
+      }
+    } catch (e) {
+      AppLogger.error('Error loading current price', e);
+      setState(() => _isLoadingPrice = false);
     }
   }
 
@@ -81,7 +180,9 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
             ),
             backgroundColor: AppColors.slate700,
             behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
           ),
         );
       }
@@ -94,7 +195,7 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
         uri,
         mode: LaunchMode.externalApplication,
       );
-      
+
       if (!launched && mounted) {
         await launchUrl(uri, mode: LaunchMode.platformDefault);
       }
@@ -107,13 +208,17 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
                 const Icon(Icons.error_outline, color: Colors.white, size: 20),
                 const SizedBox(width: 12),
                 Expanded(
-                  child: Text('Bağlantı açılamadı: ${e.toString().split(':').first}'),
+                  child: Text(
+                    'Bağlantı açılamadı: ${e.toString().split(':').first}',
+                  ),
                 ),
               ],
             ),
             backgroundColor: AppColors.negativeDark,
             behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
           ),
         );
       }
@@ -171,8 +276,10 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
     final profitLoss = _getProfitLoss();
     final profitLossPercent = _getProfitLossPercent();
 
-    // Mock güncel fiyat (gerçek API entegrasyonu eklenecek)
-    final currentPrice = type == 'Nakit' ? 0.0 : purchasePrice * 1.05;
+    // Backend'den gelen gerçek güncel fiyat (yoksa satın alma fiyatını kullan)
+    final currentPrice = type == 'Nakit'
+        ? 0.0
+        : (_currentPrice ?? purchasePrice);
     final currentValue = type == 'Nakit'
         ? totalCost
         : (quantity?.toDouble() ?? 0.0) * currentPrice;
@@ -181,7 +288,9 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
         : currentValue - totalCost;
     final unrealizedProfitLossPercent = type == 'Nakit'
         ? 0.0
-        : (unrealizedProfitLoss / totalCost) * 100;
+        : totalCost > 0
+        ? (unrealizedProfitLoss / totalCost) * 100
+        : 0.0;
 
     return Scaffold(
       backgroundColor: AppColors.backgroundDark,
@@ -381,44 +490,48 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
       ),
       child: Column(
         children: [
-          // Grafik türü seçici
+          // Grafik türü seçici - Grid layout
           Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: ChartType.values.map((type) {
-              final isSelected = _selectedChartType == type;
-              return Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 4),
-                child: InkWell(
-                  onTap: () => setState(() => _selectedChartType = type),
-                  borderRadius: BorderRadius.circular(8),
-                  child: Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: isSelected
-                          ? AppColors.primary.withOpacity(0.2)
-                          : Colors.transparent,
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(
-                        color: isSelected
-                            ? AppColors.primary
-                            : AppColors.borderDark,
-                        width: 1,
-                      ),
-                    ),
-                    child: Icon(
-                      _getChartTypeIcon(type),
-                      size: 20,
-                      color: isSelected
-                          ? AppColors.primary
-                          : AppColors.textSecondaryDark,
-                    ),
-                  ),
+            children: [
+              Expanded(
+                child: _buildChartTypeButton(
+                  ChartType.line,
+                  'Çizgi',
+                  Icons.show_chart,
                 ),
-              );
-            }).toList(),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _buildChartTypeButton(
+                  ChartType.area,
+                  'Alan',
+                  Icons.area_chart,
+                ),
+              ),
+            ],
           ),
-          const SizedBox(height: 16),
-          
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: _buildChartTypeButton(
+                  ChartType.candlestick,
+                  'Mum',
+                  Icons.candlestick_chart,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _buildChartTypeButton(
+                  ChartType.bar,
+                  'Çubuk',
+                  Icons.bar_chart,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 20),
+
           // Periyot seçici
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -490,6 +603,51 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildChartTypeButton(ChartType type, String label, IconData icon) {
+    final isSelected = _selectedChartType == type;
+    return InkWell(
+      onTap: () => setState(() => _selectedChartType = type),
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
+        decoration: BoxDecoration(
+          color: isSelected
+              ? AppColors.primary.withOpacity(0.15)
+              : const Color(0xFF131022),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: isSelected
+                ? AppColors.primary
+                : AppColors.borderDark.withOpacity(0.5),
+            width: isSelected ? 2 : 1,
+          ),
+        ),
+        child: Column(
+          children: [
+            Icon(
+              icon,
+              size: 28,
+              color: isSelected
+                  ? AppColors.primary
+                  : AppColors.textSecondaryDark,
+            ),
+            const SizedBox(height: 6),
+            Text(
+              label,
+              style: GoogleFonts.manrope(
+                fontSize: 12,
+                fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
+                color: isSelected
+                    ? AppColors.primary
+                    : AppColors.textSecondaryDark,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -910,7 +1068,10 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
             Row(
               children: [
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
                   decoration: BoxDecoration(
                     color: importanceColor.withOpacity(0.2),
                     borderRadius: BorderRadius.circular(6),
@@ -1104,11 +1265,7 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
                 ),
               ),
               const SizedBox(width: 12),
-              const Icon(
-                Icons.open_in_new,
-                size: 16,
-                color: AppColors.primary,
-              ),
+              const Icon(Icons.open_in_new, size: 16, color: AppColors.primary),
             ],
           ),
         ),
@@ -1209,7 +1366,8 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
                   : ListView.builder(
                       padding: const EdgeInsets.symmetric(horizontal: 24),
                       itemCount: _kapNews.length,
-                      itemBuilder: (context, index) => _buildKapNewsCard(_kapNews[index]),
+                      itemBuilder: (context, index) =>
+                          _buildKapNewsCard(_kapNews[index]),
                     ),
             ),
           ],
@@ -1271,7 +1429,8 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
                   : ListView.builder(
                       padding: const EdgeInsets.symmetric(horizontal: 24),
                       itemCount: _generalNews.length,
-                      itemBuilder: (context, index) => _buildGeneralNewsCard(_generalNews[index]),
+                      itemBuilder: (context, index) =>
+                          _buildGeneralNewsCard(_generalNews[index]),
                     ),
             ),
           ],
@@ -1284,7 +1443,8 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
     final assetName = _getCleanName();
     final type = widget.asset['type'] as String;
     final quantity = (widget.asset['quantity'] as num?)?.toDouble() ?? 0.0;
-    final purchasePrice = (widget.asset['purchasePrice'] as num?)?.toDouble() ?? 0.0;
+    final purchasePrice =
+        (widget.asset['purchasePrice'] as num?)?.toDouble() ?? 0.0;
     final currentPrice = type == 'Nakit' ? purchasePrice : purchasePrice * 1.05;
 
     showModalBottomSheet(
@@ -1406,9 +1566,8 @@ class _AssetSellBottomSheetState extends State<_AssetSellBottomSheet> {
                   ),
                   TextButton(
                     onPressed: () {
-                      _quantityController.text = widget.maxQuantity.toStringAsFixed(
-                        widget.assetType == 'Fon' ? 6 : 2,
-                      );
+                      _quantityController.text = widget.maxQuantity
+                          .toStringAsFixed(widget.assetType == 'Fon' ? 6 : 2);
                       _calculateTotal();
                     },
                     child: Text(
@@ -1425,7 +1584,9 @@ class _AssetSellBottomSheetState extends State<_AssetSellBottomSheet> {
               const SizedBox(height: 8),
               TextField(
                 controller: _quantityController,
-                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
                 onChanged: (_) => _calculateTotal(),
                 style: GoogleFonts.manrope(color: Colors.white, fontSize: 18),
                 decoration: InputDecoration(
@@ -1436,9 +1597,11 @@ class _AssetSellBottomSheetState extends State<_AssetSellBottomSheet> {
                     borderSide: BorderSide.none,
                   ),
                   suffixText: 'Adet',
-                  suffixStyle: GoogleFonts.manrope(color: Colors.white.withOpacity(0.5)),
-                  errorText: !isValidQuantity && quantity > 0 
-                      ? 'Mevcut miktardan fazla satılamaz' 
+                  suffixStyle: GoogleFonts.manrope(
+                    color: Colors.white.withOpacity(0.5),
+                  ),
+                  errorText: !isValidQuantity && quantity > 0
+                      ? 'Mevcut miktardan fazla satılamaz'
                       : null,
                 ),
               ),
@@ -1450,7 +1613,9 @@ class _AssetSellBottomSheetState extends State<_AssetSellBottomSheet> {
                 decoration: BoxDecoration(
                   color: AppColors.negativeDark.withOpacity(0.1),
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: AppColors.negativeDark.withOpacity(0.3)),
+                  border: Border.all(
+                    color: AppColors.negativeDark.withOpacity(0.3),
+                  ),
                 ),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,

@@ -1,10 +1,12 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
 import '../services/portfolio_service.dart';
 import '../services/email_verification_service.dart';
+import '../services/backend_api_service.dart';
 import '../theme/app_colors.dart';
+import '../utils/app_logger.dart';
 import 'add_asset_screen.dart';
 import 'transaction_history_screen.dart';
 import 'reports_screen.dart';
@@ -23,6 +25,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
   bool _isLoading = true;
   Map<String, dynamic> _stats = {};
   String _selectedPeriod = 'Bugün'; // Bugün, Bu Hafta, Bu Ay, Bu Yıl
+
+  // Cache için
+  Map<String, dynamic>? _cachedStats;
+  int _assetsHashCode = 0;
+
+  // Backend API
+  final BackendApiService _backendApi = BackendApiService();
+  Map<String, List<dynamic>> _marketPrices = {};
 
   @override
   void initState() {
@@ -116,13 +126,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     child: ElevatedButton(
                       onPressed: () {
                         Navigator.pop(context);
-                        
+
                         final authProvider = Provider.of<AuthProvider>(
                           context,
                           listen: false,
                         );
                         final email = authProvider.currentUserEmail;
-                        
+
                         if (email != null && email.isNotEmpty) {
                           Navigator.push(
                             context,
@@ -203,19 +213,63 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final userEmail = authProvider.currentUserEmail;
 
     if (userEmail != null) {
-      final assets = await PortfolioService.instance.getUserAssets(userEmail);
-      final stats = _calculateStats(assets);
+      // Backend'den market prices yükle
+      await _loadMarketPrices();
 
-      setState(() {
-        _userAssets = assets;
-        _stats = stats;
-        _isLoading = false;
-      });
+      final assets = await PortfolioService.instance.getUserAssets(userEmail);
+
+      // Sadece assets değiştiyse stats'ı yeniden hesapla
+      final newHashCode = assets.hashCode;
+      Map<String, dynamic> stats;
+
+      if (_assetsHashCode == newHashCode && _cachedStats != null) {
+        stats = _cachedStats!; // Cache'den al
+      } else {
+        stats = _calculateStats(assets);
+        _cachedStats = stats;
+        _assetsHashCode = newHashCode;
+      }
+
+      if (mounted) {
+        setState(() {
+          _userAssets = assets;
+          _stats = stats;
+          _isLoading = false;
+        });
+      }
     } else {
-      setState(() {
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
+  }
+
+  Future<void> _loadMarketPrices() async {
+    try {
+      final stocks = await _backendApi.getStocks();
+      final forex = await _backendApi.getForex();
+      final commodities = await _backendApi.getCommodities();
+
+      _marketPrices = {
+        'stocks': stocks,
+        'forex': forex,
+        'commodities': commodities,
+      };
+    } catch (e) {
+      AppLogger.error('Error loading market prices for dashboard', e);
+      _marketPrices = {};
+    }
+  }
+
+  String _extractSymbol(String name) {
+    // Asset name'den symbol çıkar
+    // Format: "THYAO | Profit..." veya sadece "THYAO"
+    if (name.contains('|')) {
+      return name.split('|')[0].trim();
+    }
+    return name.trim();
   }
 
   Map<String, dynamic> _calculateStats(List<Map<String, dynamic>> assets) {
@@ -262,12 +316,49 @@ class _DashboardScreenState extends State<DashboardScreen> {
       assetTypes.add(type);
       distribution[type] = (distribution[type] ?? 0.0) + totalCost;
 
-      // Simüle edilmiş güncel fiyat (gerçek API'de burası değişecek)
-      // Şimdilik basit bir hesaplama: purchase price'a göre %5 ile %15 arası değişim
-      final seed = name.hashCode.abs();
-      final priceChangePercent =
-          ((seed % 200) / 10.0) - 10.0; // -10% ile +10% arası
-      final currentPrice = purchasePrice * (1 + priceChangePercent / 100);
+      // Backend'den gerçek güncel fiyat al (eğer varsa)
+      double currentPrice = purchasePrice; // Default: satın alma fiyatı
+
+      try {
+        final symbol = _extractSymbol(name);
+        if (symbol.isNotEmpty) {
+          if (type == 'Hisse' && _marketPrices['stocks'] != null) {
+            final stock = _marketPrices['stocks']!.firstWhere(
+              (s) => s['symbol'].toString().toUpperCase().contains(
+                symbol.toUpperCase(),
+              ),
+              orElse: () => {},
+            );
+            if (stock.isNotEmpty) {
+              currentPrice = stock['price']?.toDouble() ?? purchasePrice;
+            }
+          } else if (type == 'Döviz' && _marketPrices['forex'] != null) {
+            final forex = _marketPrices['forex']!.firstWhere(
+              (f) => f['symbol'].toString().toUpperCase().contains(
+                symbol.toUpperCase(),
+              ),
+              orElse: () => {},
+            );
+            if (forex.isNotEmpty) {
+              currentPrice = forex['price']?.toDouble() ?? purchasePrice;
+            }
+          } else if ((type == 'Altın' || type == 'Emtia') &&
+              _marketPrices['commodities'] != null) {
+            final commodity = _marketPrices['commodities']!.firstWhere(
+              (c) => c['symbol'].toString().toUpperCase().contains(
+                symbol.toUpperCase(),
+              ),
+              orElse: () => {},
+            );
+            if (commodity.isNotEmpty) {
+              currentPrice = commodity['price']?.toDouble() ?? purchasePrice;
+            }
+          }
+        }
+      } catch (e) {
+        AppLogger.error('Error getting current price for $name', e);
+      }
+
       final currentValue = currentPrice * quantity;
       final profit = currentValue - totalCost;
 

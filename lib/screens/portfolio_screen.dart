@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../services/portfolio_service.dart';
 import '../services/database_service.dart';
 import '../services/yahoo_finance_service.dart';
+import '../services/backend_api_service.dart';
 import '../theme/app_colors.dart';
 import '../utils/app_logger.dart';
 import 'add_asset_screen.dart';
@@ -42,10 +43,20 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   TimePeriod _selectedPeriod = TimePeriod.daily;
 
+  // Cache için
+  final Map<String, Map<String, dynamic>> _stockPriceCache = {};
+  DateTime? _lastPriceUpdate;
+
+  // Backend market data
+  final BackendApiService _backendApi = BackendApiService();
+  Map<String, dynamic> _marketData = {};
+  bool _isLoadingMarket = false;
+
   @override
   void initState() {
     super.initState();
     _loadInitialData();
+    _loadMarketData();
   }
 
   String? _currentUserEmail;
@@ -55,17 +66,19 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
     // SharedPreferences'tan kullanıcı bilgilerini al
     final prefs = await SharedPreferences.getInstance();
     _currentUserEmail = prefs.getString('user_email');
-    
+
     // Kullanıcı bilgilerini veritabanından al
     if (_currentUserEmail != null && _currentUserEmail!.isNotEmpty) {
-      final user = await DatabaseService.instance.getUserByEmail(_currentUserEmail!);
+      final user = await DatabaseService.instance.getUserByEmail(
+        _currentUserEmail!,
+      );
       if (mounted) {
         setState(() {
           _currentUser = user;
         });
       }
     }
-    
+
     // Veri yükle
     _loadUserAssets();
     _loadWidgetPreferencesSimple();
@@ -92,6 +105,24 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
     }
   }
 
+  Future<void> _loadMarketData() async {
+    setState(() => _isLoadingMarket = true);
+    try {
+      final data = await _backendApi.getAllMarketData();
+      if (mounted) {
+        setState(() {
+          _marketData = data;
+          _isLoadingMarket = false;
+        });
+      }
+    } catch (e) {
+      AppLogger.error('Error loading market data from backend', e);
+      if (mounted) {
+        setState(() => _isLoadingMarket = false);
+      }
+    }
+  }
+
   Future<void> _loadUserAssets() async {
     // Provider'dan değil, SharedPreferences'tan email al (Provider tree sorununu çöz)
     final prefs = await SharedPreferences.getInstance();
@@ -99,14 +130,58 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
 
     if (userEmail.isNotEmpty) {
       final assets = await PortfolioService.instance.getUserAssets(userEmail);
-      setState(() {
-        _userAssets = assets;
-        _isLoading = false;
-      });
+
+      // Hisse senetleri için fiyat bilgilerini yükle
+      await _loadStockPrices(assets);
+
+      if (mounted) {
+        setState(() {
+          _userAssets = assets;
+          _isLoading = false;
+        });
+      }
     } else {
-      setState(() {
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
+  }
+
+  /// Hisse senetleri için fiyat bilgilerini yükle ve cache'le
+  Future<void> _loadStockPrices(List<Map<String, dynamic>> assets) async {
+    // Cache 1 dakikadan eskiyse yenile
+    final now = DateTime.now();
+    if (_lastPriceUpdate != null &&
+        now.difference(_lastPriceUpdate!).inMinutes < 1) {
+      return; // Cache geçerli
+    }
+
+    // Hisse senetlerini filtrele
+    final stockSymbols = assets
+        .where((asset) => asset['type'] == 'Hisse')
+        .map((asset) => '${asset['name']}.IS')
+        .toSet()
+        .toList();
+
+    if (stockSymbols.isEmpty) return;
+
+    try {
+      // Tüm fiyatları paralel olarak çek
+      final quotes = await YahooFinanceService.instance.getMultipleQuotes(
+        stockSymbols,
+      );
+
+      // Cache'i güncelle
+      for (var quote in quotes) {
+        final symbol = quote['symbol'].toString().replaceAll('.IS', '');
+        _stockPriceCache[symbol] = quote;
+      }
+
+      _lastPriceUpdate = now;
+    } catch (e) {
+      AppLogger.error('Error loading stock prices', e);
     }
   }
 
@@ -194,9 +269,7 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
                   ),
                 );
                 if (result == true && mounted) {
-                  setState(() {
-                    _isLoading = true;
-                  });
+                  // Silme işlemi yapıldı, hemen refresh et
                   await _loadUserAssets();
                 }
               },
@@ -395,6 +468,7 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
         return 'Tüm Zamanlar';
     }
   }
+
   void _showPeriodSelector() {
     showModalBottomSheet(
       context: context,
@@ -1054,14 +1128,14 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
         iconBg = AppColors.greenBg;
         iconColor = const Color(0xFF34D399); // green-400
     }
-    
+
     return InkWell(
       onTap: () async {
         if (type == 'Hisse') {
           // Hisse için MarketAssetDetailScreen'e git
           final prefs = await SharedPreferences.getInstance();
           final userEmail = prefs.getString('user_email') ?? '';
-          
+
           if (mounted) {
             Navigator.push(
               context,
@@ -1111,8 +1185,20 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
             // Content
             Expanded(
               child: type == 'Hisse' && quantity != null && purchasePrice > 0
-                  ? _buildStockAssetContent(name, type, quantity, totalCost, purchasePrice)
-                  : _buildRegularAssetContent(name, type, quantity, totalCost, profitLossPercent),
+                  ? _buildStockAssetContent(
+                      name,
+                      type,
+                      quantity,
+                      totalCost,
+                      purchasePrice,
+                    )
+                  : _buildRegularAssetContent(
+                      name,
+                      type,
+                      quantity,
+                      totalCost,
+                      profitLossPercent,
+                    ),
             ),
           ],
         ),
@@ -1120,110 +1206,114 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
     );
   }
 
-  Widget _buildStockAssetContent(String name, String type, num quantity, double totalCost, double purchasePrice) {
-    return FutureBuilder<Map<String, dynamic>?>(
-      future: YahooFinanceService.instance.getQuote('$name.IS'),
-      builder: (context, snapshot) {
-        double? currentPrice;
-        double? profitLoss;
-        double? profitLossPercent;
+  Widget _buildStockAssetContent(
+    String name,
+    String type,
+    num quantity,
+    double totalCost,
+    double purchasePrice,
+  ) {
+    // Cache'den fiyat bilgisini al
+    final cachedQuote = _stockPriceCache[name];
+    double? currentPrice = cachedQuote?['price']?.toDouble();
+    double? profitLoss;
+    double? profitLossPercent;
 
-        if (snapshot.hasData && snapshot.data != null) {
-          currentPrice = snapshot.data!['price']?.toDouble();
-          if (currentPrice != null && purchasePrice > 0) {
-            final currentTotal = currentPrice * quantity.toDouble();
-            profitLoss = currentTotal - totalCost;
-            profitLossPercent = (profitLoss / totalCost) * 100;
-          }
-        }
+    if (currentPrice != null && purchasePrice > 0) {
+      final currentTotal = currentPrice * quantity.toDouble();
+      profitLoss = currentTotal - totalCost;
+      profitLossPercent = (profitLoss / totalCost) * 100;
+    }
 
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Expanded(
-                  child: Text(
-                    name,
-                    style: GoogleFonts.manrope(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      color: AppColors.textMainDark,
-                    ),
-                    overflow: TextOverflow.ellipsis,
-                  ),
+            Expanded(
+              child: Text(
+                name,
+                style: GoogleFonts.manrope(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: AppColors.textMainDark,
                 ),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Text(
-                      '₺${totalCost.toStringAsFixed(2)}',
-                      style: GoogleFonts.manrope(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        color: AppColors.textMainDark,
-                      ),
-                    ),
-                    if (currentPrice != null) ...[
-                      const SizedBox(height: 2),
-                      Text(
-                        'Güncel: ₺${(currentPrice * quantity.toDouble()).toStringAsFixed(2)}',
-                        style: GoogleFonts.manrope(
-                          fontSize: 12,
-                          color: AppColors.textSecondaryDark,
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-              ],
+                overflow: TextOverflow.ellipsis,
+              ),
             ),
-            const SizedBox(height: 4),
-            Row(
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
               children: [
                 Text(
-                  '$type • ${quantity.toStringAsFixed(quantity.truncateToDouble() == quantity ? 0 : 2)}',
+                  '₺${totalCost.toStringAsFixed(2)}',
                   style: GoogleFonts.manrope(
-                    fontSize: 14,
-                    color: AppColors.textSecondaryDark,
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: AppColors.textMainDark,
                   ),
                 ),
-                if (profitLossPercent != null && profitLoss != null) ...[
-                  const SizedBox(width: 8),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 2,
-                    ),
-                    decoration: BoxDecoration(
-                      color: (profitLoss >= 0
-                              ? AppColors.positiveDark
-                              : AppColors.negativeDark)
-                          .withOpacity(0.15),
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: Text(
-                      '${profitLoss >= 0 ? '+' : ''}₺${profitLoss.toStringAsFixed(2)} (${profitLossPercent >= 0 ? '+' : ''}${profitLossPercent.toStringAsFixed(2)}%)',
-                      style: GoogleFonts.manrope(
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
-                        color: profitLoss >= 0
-                            ? AppColors.positiveDark
-                            : AppColors.negativeDark,
-                      ),
+                if (currentPrice != null) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    'Güncel: ₺${(currentPrice * quantity.toDouble()).toStringAsFixed(2)}',
+                    style: GoogleFonts.manrope(
+                      fontSize: 12,
+                      color: AppColors.textSecondaryDark,
                     ),
                   ),
                 ],
               ],
             ),
           ],
-        );
-      },
+        ),
+        const SizedBox(height: 4),
+        Row(
+          children: [
+            Text(
+              '$type • ${quantity.toStringAsFixed(quantity.truncateToDouble() == quantity ? 0 : 2)}',
+              style: GoogleFonts.manrope(
+                fontSize: 14,
+                color: AppColors.textSecondaryDark,
+              ),
+            ),
+            if (profitLossPercent != null && profitLoss != null) ...[
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(
+                  color:
+                      (profitLoss >= 0
+                              ? AppColors.positiveDark
+                              : AppColors.negativeDark)
+                          .withOpacity(0.15),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: Text(
+                  '${profitLoss >= 0 ? '+' : ''}₺${profitLoss.toStringAsFixed(2)} (${profitLossPercent >= 0 ? '+' : ''}${profitLossPercent.toStringAsFixed(2)}%)',
+                  style: GoogleFonts.manrope(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color: profitLoss >= 0
+                        ? AppColors.positiveDark
+                        : AppColors.negativeDark,
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ],
     );
   }
 
-  Widget _buildRegularAssetContent(String name, String type, num? quantity, double totalCost, double? profitLossPercent) {
+  Widget _buildRegularAssetContent(
+    String name,
+    String type,
+    num? quantity,
+    double totalCost,
+    double? profitLossPercent,
+  ) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1264,10 +1354,7 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
             if (profitLossPercent != null) ...[
               const SizedBox(width: 8),
               Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 8,
-                  vertical: 2,
-                ),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                 decoration: BoxDecoration(
                   color:
                       (profitLossPercent >= 0
@@ -1545,7 +1632,7 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
                       await prefs.remove('user_email');
                       await prefs.remove('isLoggedIn');
                       await prefs.setBool('isLoggedIn', false);
-                      
+
                       if (mounted) {
                         Navigator.of(
                           context,
@@ -2821,44 +2908,172 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
             ],
           ),
           const SizedBox(height: 16),
-          Row(
-            children: [
-              Expanded(
-                child: _buildMarketItem('BIST 100', '9,842.50', '+1.25%', true),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _buildMarketItem('USD/TRY', '34.25', '+0.15%', true),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: _buildMarketItem('EUR/TRY', '37.12', '-0.08%', false),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _buildMarketItem('Altın', '2,985.00', '+0.45%', true),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: _buildMarketItem('Bitcoin', '\$67,450', '+2.15%', true),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _buildMarketItem('Gümüş', '\$25.30', '-0.32%', false),
-              ),
-            ],
-          ),
+          _isLoadingMarket
+              ? const Center(child: CircularProgressIndicator())
+              : _buildDynamicMarketItems(),
         ],
       ),
     );
+  }
+
+  Widget _buildDynamicMarketItems() {
+    // Backend'den gelen verileri parse et
+    final stocks = _marketData['bist100'] as List<dynamic>? ?? [];
+    final forex = _marketData['forex'] as List<dynamic>? ?? [];
+    final commodities = _marketData['commodities'] as List<dynamic>? ?? [];
+
+    // İlk hisse (varsa)
+    String stock1Name = 'BIST 100';
+    String stock1Price = '-';
+    String stock1Change = '0%';
+    bool stock1Positive = false;
+    if (stocks.isNotEmpty) {
+      final stock = stocks[0];
+      stock1Name = stock['symbol']?.toString().replaceAll('.IS', '') ?? 'BIST';
+      stock1Price = _formatPrice(stock['price']);
+      final changePercent = stock['change_percent']?.toDouble() ?? 0.0;
+      stock1Change =
+          '${changePercent >= 0 ? '+' : ''}${changePercent.toStringAsFixed(2)}%';
+      stock1Positive = changePercent >= 0;
+    }
+
+    // USD/TRY
+    String usdName = 'USD/TRY';
+    String usdPrice = '-';
+    String usdChange = '0%';
+    bool usdPositive = false;
+    
+    try {
+      if (forex.isNotEmpty) {
+        // USD/TRY'yi bul
+        final usdData = forex.firstWhere(
+          (f) => f['pair']?.toString().contains('USD/TRY') ?? false,
+          orElse: () => null,
+        );
+        
+        if (usdData != null && usdData is Map) {
+          final rate = usdData['rate'];
+          if (rate != null) {
+            usdPrice = _formatPrice(rate);
+            final changePercent = usdData['change_percent']?.toDouble() ?? 0.0;
+            usdChange = '${changePercent >= 0 ? '+' : ''}${changePercent.toStringAsFixed(2)}%';
+            usdPositive = changePercent >= 0;
+          }
+        }
+      }
+    } catch (e) {
+      AppLogger.error('Error parsing USD/TRY', e);
+    }
+
+    // EUR/TRY
+    String eurName = 'EUR/TRY';
+    String eurPrice = '-';
+    String eurChange = '0%';
+    bool eurPositive = false;
+    
+    try {
+      if (forex.isNotEmpty) {
+        // EUR/TRY'yi bul
+        final eurData = forex.firstWhere(
+          (f) => f['pair']?.toString().contains('EUR/TRY') ?? false,
+          orElse: () => null,
+        );
+        
+        if (eurData != null && eurData is Map) {
+          final rate = eurData['rate'];
+          if (rate != null) {
+            eurPrice = _formatPrice(rate);
+            final changePercent = eurData['change_percent']?.toDouble() ?? 0.0;
+            eurChange = '${changePercent >= 0 ? '+' : ''}${changePercent.toStringAsFixed(2)}%';
+            eurPositive = changePercent >= 0;
+          }
+        }
+      }
+    } catch (e) {
+      AppLogger.error('Error parsing EUR/TRY', e);
+    }
+
+    // Altın
+    String goldName = 'Altın';
+    String goldPrice = '-';
+    String goldChange = '0%';
+    bool goldPositive = false;
+    final goldData = commodities.firstWhere(
+      (c) => c['symbol']?.toString().toUpperCase().contains('GC') ?? false,
+      orElse: () => {},
+    );
+    if (goldData.isNotEmpty) {
+      goldName = goldData['name'] ?? 'Altın';
+      goldPrice = '\$${_formatPrice(goldData['price'])}';
+      final changePercent = goldData['change_percent']?.toDouble() ?? 0.0;
+      goldChange =
+          '${changePercent >= 0 ? '+' : ''}${changePercent.toStringAsFixed(2)}%';
+      goldPositive = changePercent >= 0;
+    }
+
+    return Column(
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: _buildMarketItem(
+                stock1Name,
+                stock1Price,
+                stock1Change,
+                stock1Positive,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: _buildMarketItem(
+                usdName,
+                usdPrice,
+                usdChange,
+                usdPositive,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(
+              child: _buildMarketItem(
+                eurName,
+                eurPrice,
+                eurChange,
+                eurPositive,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: _buildMarketItem(
+                goldName,
+                goldPrice,
+                goldChange,
+                goldPositive,
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  String _formatPrice(dynamic price) {
+    if (price == null) return '-';
+    final double priceValue = price is double
+        ? price
+        : double.tryParse(price.toString()) ?? 0.0;
+    if (priceValue >= 1000) {
+      return priceValue
+          .toStringAsFixed(0)
+          .replaceAllMapped(
+            RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
+            (Match m) => '${m[1]},',
+          );
+    }
+    return priceValue.toStringAsFixed(2);
   }
 
   Widget _buildMarketItem(

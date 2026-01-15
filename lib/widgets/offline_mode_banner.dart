@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
-import '../theme/app_colors.dart';
 
 /// Offline mode banner that displays at the top when no internet connection
 class OfflineModeBanner extends StatefulWidget {

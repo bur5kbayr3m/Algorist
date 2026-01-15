@@ -1,12 +1,14 @@
-import 'dart:async';
+import 'dart:async' show Future, Timer;
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:convert';
 import '../theme/app_colors.dart';
 import '../utils/app_logger.dart';
 import '../widgets/app_bottom_navigation.dart';
 import '../widgets/offline_mode_banner.dart';
 import '../widgets/success_dialog.dart';
-import '../services/yahoo_finance_service.dart';
+import '../services/backend_api_service.dart';
 import 'market_asset_detail_screen.dart';
 
 class MarketsScreen extends StatefulWidget {
@@ -21,53 +23,91 @@ class MarketsScreen extends StatefulWidget {
 class _MarketsScreenState extends State<MarketsScreen> {
   List<MarketItem> _watchlist = [];
   bool _isLoading = true;
-  Timer? _refreshTimer;
   DateTime? _lastUpdate;
+  String _lastUpdateText = 'Az önce';
+  Timer? _refreshTimer;
+  Timer? _updateTextTimer;
 
   @override
   void initState() {
     super.initState();
     _loadWatchlist();
-    // Her 30 saniyede bir otomatik güncelle
+    // Her 30 saniyede bir verileri güncelle
     _refreshTimer = Timer.periodic(const Duration(seconds: 30), (_) {
       _loadWatchlist();
+    });
+    // Her dakikada bir "son güncelleme" yazısını güncelle
+    _updateTextTimer = Timer.periodic(const Duration(minutes: 1), (_) {
+      _updateLastUpdateText();
     });
   }
 
   @override
   void dispose() {
     _refreshTimer?.cancel();
+    _updateTextTimer?.cancel();
     super.dispose();
   }
 
   Future<void> _loadWatchlist() async {
+    if (!mounted) return;
+    
+    // Önce kaydedilmiş sembolleri yükle
+    final prefs = await SharedPreferences.getInstance();
+    final savedSymbols = prefs.getStringList('watchlist_symbols') ?? [];
+    
     setState(() => _isLoading = true);
 
     try {
-      // Yahoo Finance'den gerçek veri çek - sadece 3 hisse
-      final symbols = YahooFinanceService.getBist100Symbols().take(3).toList();
-      final quotes = await YahooFinanceService.instance.getMultipleQuotes(symbols);
-      
-      _watchlist = quotes.map((quote) {
-        return MarketItem(
-          symbol: quote['symbol'].toString().replaceAll('.IS', ''),
-          name: _getCompanyName(quote['symbol'].toString()),
-          category: 'Hisse',
-          price: quote['price']?.toDouble() ?? 0.0,
-          change: quote['change']?.toDouble() ?? 0.0,
-          changePercent: quote['changePercent']?.toDouble() ?? 0.0,
+      final backendApi = BackendApiService();
+      final stocks = await backendApi.getStocks();
+
+      // Eğer kaydedilmiş sembol yoksa, ilk 3 hisseyi ekle
+      if (savedSymbols.isEmpty && stocks.isNotEmpty) {
+        final topStocks = stocks.take(3).toList();
+        savedSymbols.addAll(
+          topStocks.map((s) => s['symbol'].toString()).toList(),
         );
-      }).toList();
-      
-      _lastUpdate = DateTime.now();
-    } catch (e) {
-      AppLogger.error('Error loading watchlist', e);
+        await prefs.setStringList('watchlist_symbols', savedSymbols);
+      }
+
+      // Kaydedilmiş sembollerin güncel verilerini al
       _watchlist = [];
+      for (final symbol in savedSymbols) {
+        final stock = stocks.firstWhere(
+          (s) => s['symbol'].toString() == symbol,
+          orElse: () => {},
+        );
+        
+        if (stock.isNotEmpty) {
+          final currentPrice = stock['price']?.toDouble() ?? 0.0;
+          final changePercent = stock['change_percent']?.toDouble() ?? 0.0;
+          final change = currentPrice * (changePercent / 100);
+          
+          _watchlist.add(MarketItem(
+            symbol: stock['symbol'].toString().replaceAll('.IS', ''),
+            name: stock['name'] ?? _getCompanyName(stock['symbol'].toString()),
+            category: 'Hisse',
+            price: currentPrice,
+            change: change,
+            changePercent: changePercent,
+          ));
+        }
+      }
+
+      _lastUpdate = DateTime.now();
+      _lastUpdateText = 'Az önce';
+      
+      AppLogger.info('✅ Watchlist loaded: ${_watchlist.length} items');
+    } catch (e) {
+      AppLogger.error('Error loading watchlist from backend', e);
     } finally {
-      setState(() => _isLoading = false);
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
-  
+
   String _getCompanyName(String symbol) {
     final Map<String, String> names = {
       'THYAO.IS': 'Türk Hava Yolları',
@@ -79,22 +119,20 @@ class _MarketsScreenState extends State<MarketsScreen> {
     return names[symbol] ?? symbol;
   }
 
-  String _formatLastUpdate(DateTime time) {
+  void _updateLastUpdateText() {
+    if (_lastUpdate == null) return;
     final now = DateTime.now();
-    final diff = now.difference(time);
-    
-    if (diff.inSeconds < 60) {
-      return 'Az önce';
-    } else if (diff.inMinutes < 60) {
-      return '${diff.inMinutes} dakika önce';
-    } else {
-      return '${diff.inHours} saat önce';
-    }
-  }
+    final diff = now.difference(_lastUpdate!);
 
-  List<MarketItem> _getDefaultMarketItems() {
-    // TODO: Gerçek API verisi eklenecek
-    return [];
+    setState(() {
+      if (diff.inSeconds < 60) {
+        _lastUpdateText = 'Az önce';
+      } else if (diff.inMinutes < 60) {
+        _lastUpdateText = '${diff.inMinutes} dakika önce';
+      } else {
+        _lastUpdateText = '${diff.inHours} saat önce';
+      }
+    });
   }
 
   void _showAddItemDialog() {
@@ -103,13 +141,90 @@ class _MarketsScreenState extends State<MarketsScreen> {
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (context) => AddMarketItemSheet(
-        onAdd: (item) {
-          setState(() {
-            _watchlist.add(item);
-          });
+        currentWatchlist: _watchlist,
+        onAdd: (item) async {
+          // Zaten listedeyse kaldır, yoksa ekle (toggle)
+          final isAlreadyInList = _watchlist.any((i) => i.symbol == item.symbol);
+          
+          if (isAlreadyInList) {
+            // Listeden çıkart
+            setState(() {
+              _watchlist.removeWhere((i) => i.symbol == item.symbol);
+            });
+            
+            // Kalıcı kayıttan sil
+            final prefs = await SharedPreferences.getInstance();
+            final symbols = _watchlist.map((i) => '${i.symbol}.IS').toList();
+            await prefs.setStringList('watchlist_symbols', symbols);
+            
+            AppLogger.info('🗑️ Removed from watchlist: ${item.symbol}');
+            
+            // Bottom sheet'i kapat
+            if (mounted) {
+              Navigator.pop(context);
+              
+              // Kaldırıldı mesajı göster
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('${item.name} izleme listesinden kaldırıldı'),
+                  backgroundColor: Colors.orange,
+                  duration: const Duration(seconds: 2),
+                ),
+              );
+            }
+          } else {
+            // Watchlist'e ekle
+            setState(() {
+              _watchlist.add(item);
+            });
+            
+            // Kalıcı olarak kaydet
+            final prefs = await SharedPreferences.getInstance();
+            final symbols = _watchlist.map((i) => '${i.symbol}.IS').toList();
+            await prefs.setStringList('watchlist_symbols', symbols);
+            
+            AppLogger.info('✅ Added to watchlist: ${item.symbol}');
+            
+            // Bottom sheet'i kapat
+            if (mounted) {
+              Navigator.pop(context);
+              
+              // Başarı mesajı göster (tek bir tane)
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('${item.name} izleme listesine eklendi'),
+                  backgroundColor: AppColors.primary,
+                  duration: const Duration(seconds: 2),
+                ),
+              );
+            }
+          }
         },
       ),
     );
+  }
+  
+  Future<void> _removeFromWatchlist(MarketItem item) async {
+    setState(() {
+      _watchlist.removeWhere((i) => i.symbol == item.symbol);
+    });
+    
+    // Kalıcı kayıttan sil
+    final prefs = await SharedPreferences.getInstance();
+    final symbols = _watchlist.map((i) => '${i.symbol}.IS').toList();
+    await prefs.setStringList('watchlist_symbols', symbols);
+    
+    AppLogger.info('🗑️ Removed from watchlist: ${item.symbol}');
+    
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('${item.name} izleme listesinden kaldırıldı'),
+          backgroundColor: AppColors.primary,
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    }
   }
 
   @override
@@ -153,58 +268,61 @@ class _MarketsScreenState extends State<MarketsScreen> {
                     padding: const EdgeInsets.all(16),
                     children: [
                       // İzleme Listesi Header
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'İzleme Listem',
+                                style: GoogleFonts.plusJakartaSans(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.bold,
+                                  color: isDarkMode
+                                      ? Colors.white
+                                      : AppColors.textPrimary,
+                                ),
+                              ),
+                              if (_lastUpdate != null)
+                                Text(
+                                  'Son güncelleme: $_lastUpdateText',
+                                  style: GoogleFonts.plusJakartaSans(
+                                    fontSize: 11,
+                                    color: isDarkMode
+                                        ? Colors.white.withOpacity(0.4)
+                                        : AppColors.textSecondary.withOpacity(
+                                            0.6,
+                                          ),
+                                  ),
+                                ),
+                            ],
+                          ),
                           Text(
-                            'İzleme Listem',
+                            '${_watchlist.length} varlık',
                             style: GoogleFonts.plusJakartaSans(
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
+                              fontSize: 14,
                               color: isDarkMode
-                                  ? Colors.white
-                                  : AppColors.textPrimary,
+                                  ? Colors.white.withOpacity(0.6)
+                                  : AppColors.textSecondary,
                             ),
                           ),
-                          if (_lastUpdate != null)
-                            Text(
-                              'Son güncelleme: ${_formatLastUpdate(_lastUpdate!)}',
-                              style: GoogleFonts.plusJakartaSans(
-                                fontSize: 11,
-                                color: isDarkMode
-                                    ? Colors.white.withOpacity(0.4)
-                                    : AppColors.textSecondary.withOpacity(0.6),
-                              ),
-                            ),
                         ],
                       ),
-                      Text(
-                        '${_watchlist.length} varlık',
-                        style: GoogleFonts.plusJakartaSans(
-                          fontSize: 14,
-                          color: isDarkMode
-                              ? Colors.white.withOpacity(0.6)
-                              : AppColors.textSecondary,
-                        ),
+
+                      const SizedBox(height: 16),
+
+                      // Market Items
+                      ..._watchlist.map(
+                        (item) => _buildMarketItemCard(item, isDarkMode),
                       ),
                     ],
                   ),
-
-                  const SizedBox(height: 16),
-
-                  // Market Items
-                  ..._watchlist.map(
-                    (item) => _buildMarketItemCard(item, isDarkMode),
-                  ),
-                ],
-              ),
-            ),
+                ),
           bottomNavigationBar: const AppBottomNavigation(currentIndex: 1),
           floatingActionButton: _buildFAB(),
-          floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
+          floatingActionButtonLocation:
+              FloatingActionButtonLocation.centerDocked,
         ),
         const OfflineModeBanner(),
       ],
@@ -215,20 +333,82 @@ class _MarketsScreenState extends State<MarketsScreen> {
     final isPositive = item.change >= 0;
     final changeColor = isPositive ? Colors.green : Colors.red;
 
-    return GestureDetector(
-      onTap: () {
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => MarketAssetDetailScreen(
-              marketItem: item,
-              userEmail: widget.userEmail,
+    return Dismissible(
+      key: Key(item.symbol),
+      direction: DismissDirection.endToStart,
+      background: Container(
+        margin: const EdgeInsets.only(bottom: 12),
+        decoration: BoxDecoration(
+          color: Colors.red,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        alignment: Alignment.centerRight,
+        padding: const EdgeInsets.only(right: 20),
+        child: const Icon(
+          Icons.delete,
+          color: Colors.white,
+          size: 28,
+        ),
+      ),
+      confirmDismiss: (direction) async {
+        // Silme onayı
+        return await showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            backgroundColor: isDarkMode ? AppColors.surfaceDark : Colors.white,
+            title: Text(
+              'İzleme Listesinden Kaldır',
+              style: GoogleFonts.plusJakartaSans(
+                color: isDarkMode ? Colors.white : AppColors.textPrimary,
+              ),
             ),
+            content: Text(
+              '${item.name} izleme listenizden kaldırılsın mı?',
+              style: GoogleFonts.plusJakartaSans(
+                color: isDarkMode ? Colors.white70 : AppColors.textSecondary,
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: Text(
+                  'İptal',
+                  style: GoogleFonts.plusJakartaSans(
+                    color: isDarkMode ? Colors.white70 : AppColors.textSecondary,
+                  ),
+                ),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: Text(
+                  'Kaldır',
+                  style: GoogleFonts.plusJakartaSans(
+                    color: Colors.red,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
           ),
         );
       },
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 12),
+      onDismissed: (direction) {
+        _removeFromWatchlist(item);
+      },
+      child: GestureDetector(
+        onTap: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => MarketAssetDetailScreen(
+                marketItem: item,
+                userEmail: widget.userEmail,
+              ),
+            ),
+          );
+        },
+        child: Container(
+          margin: const EdgeInsets.only(bottom: 12),
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
           color: isDarkMode ? AppColors.surfaceDark : Colors.white,
@@ -276,61 +456,65 @@ class _MarketsScreenState extends State<MarketsScreen> {
                     item.name,
                     style: GoogleFonts.plusJakartaSans(
                       fontSize: 12,
-                    color: isDarkMode
-                        ? Colors.white.withOpacity(0.6)
-                        : AppColors.textSecondary,
+                      color: isDarkMode
+                          ? Colors.white.withOpacity(0.6)
+                          : AppColors.textSecondary,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+                ],
+              ),
+            ),
+
+            const SizedBox(width: 12),
+
+            // Price and Change
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(
+                  '₺${item.price.toStringAsFixed(2)}',
+                  style: GoogleFonts.plusJakartaSans(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: isDarkMode ? Colors.white : AppColors.textPrimary,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 2,
+                  ),
+                  decoration: BoxDecoration(
+                    color: changeColor.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        isPositive ? Icons.arrow_upward : Icons.arrow_downward,
+                        color: changeColor,
+                        size: 12,
+                      ),
+                      const SizedBox(width: 2),
+                      Text(
+                        '${isPositive ? '+' : ''}${item.changePercent.toStringAsFixed(2)}%',
+                        style: GoogleFonts.plusJakartaSans(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: changeColor,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ],
             ),
-          ),
-
-          const SizedBox(width: 12),
-
-          // Price and Change
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Text(
-                '₺${item.price.toStringAsFixed(2)}',
-                style: GoogleFonts.plusJakartaSans(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                  color: isDarkMode ? Colors.white : AppColors.textPrimary,
-                ),
-              ),
-              const SizedBox(height: 2),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                decoration: BoxDecoration(
-                  color: changeColor.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(4),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      isPositive ? Icons.arrow_upward : Icons.arrow_downward,
-                      color: changeColor,
-                      size: 12,
-                    ),
-                    const SizedBox(width: 2),
-                    Text(
-                      '${isPositive ? '+' : ''}${item.changePercent.toStringAsFixed(2)}%',
-                      style: GoogleFonts.plusJakartaSans(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        color: changeColor,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ],
+          ],
+        ),
       ),
       ),
     );
@@ -415,8 +599,13 @@ class MarketItem {
 
 class AddMarketItemSheet extends StatefulWidget {
   final Function(MarketItem) onAdd;
+  final List<MarketItem> currentWatchlist;
 
-  const AddMarketItemSheet({super.key, required this.onAdd});
+  const AddMarketItemSheet({
+    super.key,
+    required this.onAdd,
+    required this.currentWatchlist,
+  });
 
   @override
   State<AddMarketItemSheet> createState() => _AddMarketItemSheetState();
@@ -441,21 +630,28 @@ class _AddMarketItemSheetState extends State<AddMarketItemSheet>
     setState(() => _isLoading = true);
 
     try {
-      // Yahoo Finance'den BIST 100 hisselerini çek - ilk 3 hariç kalan 17 hisse
-      final symbols = YahooFinanceService.getBist100Symbols().skip(3).toList();
-      final quotes = await YahooFinanceService.instance.getMultipleQuotes(symbols);
-      
-      _bist100Stocks = quotes.map((quote) {
+      final backendApi = BackendApiService();
+      final stocks = await backendApi.getStocks();
+
+      // İlk 3'ü zaten watchlist'te, kalanları al
+      final remainingStocks = stocks.skip(3).toList();
+
+      _bist100Stocks = remainingStocks.map((stock) {
+        final currentPrice = stock['price']?.toDouble() ?? 0.0;
+        final changePercent = stock['change_percent']?.toDouble() ?? 0.0;
+        final change = currentPrice * (changePercent / 100);
+        
         return MarketItem(
-          symbol: quote['symbol'].toString().replaceAll('.IS', ''),
-          name: _getCompanyName(quote['symbol'].toString()),
+          symbol: stock['symbol'].toString().replaceAll('.IS', ''),
+          name: stock['name'] ?? _getCompanyName(stock['symbol'].toString()),
           category: 'Hisse',
-          price: quote['price']?.toDouble() ?? 0.0,
-          change: quote['change']?.toDouble() ?? 0.0,
-          changePercent: quote['changePercent']?.toDouble() ?? 0.0,
+          price: currentPrice,
+          change: change,
+          changePercent: changePercent,
         );
       }).toList();
     } catch (e) {
+      AppLogger.error('Error loading BIST100 stocks from backend', e);
       _bist100Stocks = [];
     } finally {
       setState(() => _isLoading = false);
@@ -651,32 +847,29 @@ class _AddMarketItemSheetState extends State<AddMarketItemSheet>
         final item = items[index];
         final isPositive = item.change >= 0;
         final changeColor = isPositive ? Colors.green : Colors.red;
+        final isInWatchlist = widget.currentWatchlist.any((w) => w.symbol == item.symbol);
 
         return InkWell(
           onTap: () {
             widget.onAdd(item);
-            Navigator.pop(context);
-            SuccessDialog.show(
-              context,
-              title: 'Başarılı',
-              message: '${item.symbol} izleme listesine eklendi',
-              onDismiss: () {
-                // İzleme listesine ekleme tamamlandı
-              },
-            );
+            // Navigator.pop ve mesaj artık callback'te handle ediliyor
           },
           child: Container(
             padding: const EdgeInsets.all(12),
             margin: const EdgeInsets.only(bottom: 8),
             decoration: BoxDecoration(
-              color: isDarkMode
-                  ? Colors.white.withOpacity(0.05)
-                  : Colors.grey.shade50,
+              color: isInWatchlist 
+                  ? AppColors.primary.withOpacity(0.1)
+                  : (isDarkMode
+                      ? Colors.white.withOpacity(0.05)
+                      : Colors.grey.shade50),
               borderRadius: BorderRadius.circular(8),
               border: Border.all(
-                color: isDarkMode
-                    ? Colors.white.withOpacity(0.1)
-                    : Colors.grey.shade200,
+                color: isInWatchlist
+                    ? AppColors.primary.withOpacity(0.5)
+                    : (isDarkMode
+                        ? Colors.white.withOpacity(0.1)
+                        : Colors.grey.shade200),
               ),
             ),
             child: Row(
@@ -685,15 +878,37 @@ class _AddMarketItemSheetState extends State<AddMarketItemSheet>
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        item.symbol,
-                        style: GoogleFonts.plusJakartaSans(
-                          fontSize: 15,
-                          fontWeight: FontWeight.bold,
-                          color: isDarkMode
-                              ? Colors.white
-                              : AppColors.textPrimary,
-                        ),
+                      Row(
+                        children: [
+                          Text(
+                            item.symbol,
+                            style: GoogleFonts.plusJakartaSans(
+                              fontSize: 15,
+                              fontWeight: FontWeight.bold,
+                              color: isDarkMode
+                                  ? Colors.white
+                                  : AppColors.textPrimary,
+                            ),
+                          ),
+                          if (isInWatchlist) ...[
+                            const SizedBox(width: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: AppColors.primary.withOpacity(0.2),
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: Text(
+                                'İzleniyor',
+                                style: GoogleFonts.plusJakartaSans(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w600,
+                                  color: AppColors.primary,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ],
                       ),
                       const SizedBox(height: 2),
                       Text(
@@ -748,8 +963,8 @@ class _AddMarketItemSheetState extends State<AddMarketItemSheet>
                 ),
                 const SizedBox(width: 8),
                 Icon(
-                  Icons.add_circle_outline,
-                  color: AppColors.primary,
+                  isInWatchlist ? Icons.check_circle : Icons.add_circle_outline,
+                  color: isInWatchlist ? Colors.green : AppColors.primary,
                   size: 24,
                 ),
               ],

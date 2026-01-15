@@ -2,5 +2,21 @@
   "dart.flutterRunAdditionalArgs": [
     "-d",
     "android"
+  ],
+  "python.analysis.typeCheckingMode": "off",
+  "python.analysis.diagnosticSeverityOverrides": {
+    "reportMissingTypeStubs": "none",
+    "reportUnknownMemberType": "none",
+    "reportUnknownVariableType": "none",
+    "reportUnknownArgumentType": "none",
+    "reportUnknownParameterType": "none",
+    "reportUnknownLambdaType": "none",
+    "reportUnnecessaryIsInstance": "none",
+    "reportMissingParameterType": "none",
+    "reportGeneralTypeIssues": "none"
+  },
+  "python.analysis.stubPath": "backend/typings",
+  "python.analysis.extraPaths": [
+    "./backend/typings"
   ]
 }
